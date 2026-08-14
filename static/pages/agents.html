@@ -1,52 +1,50 @@
 <h1>Agents</h1>
+<div id="agents-access-result"></div>
 
-<h2>Enroll a New Agent</h2>
-<p>
-  Generate a one-time token, then run the shipper on the target machine with it.
-  Hostname is detected automatically.
-</p>
+<div id="agents-content" style="display:none;">
+    <div class="panel">
+        <h2>Enroll a New Agent</h2>
+        <div class="panel-desc">
+            Generate a one-time token, then run the shipper on the target machine with it.
+            Hostname is detected automatically.
+        </div>
+        <button onclick="generateEnrollmentToken()">Generate Enrollment Token</button>
+        <div id="enrollment-result"></div>
+    </div>
 
-<div id="enrollment-result"></div>
+    <h2>Register New Agent</h2>
+    <input id="new-hostname" placeholder="hostname (e.g. web-server-01)">
+    <button onclick="registerAgent()">Register</button>
+    <div id="register-result"></div>
 
-<h2>Register New Agent</h2>
-<input id="new-hostname" placeholder="hostname (e.g. web-server-01)">
-<button onclick="registerAgent()">Register</button>
-<div id="register-result"></div>
+    <h2>Registered Agents</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Hostname</th>
+                <th>Last Seen</th>
+                <th></th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody id="agent-rows"></tbody>
+    </table>
 
-<h2>Registered Agents</h2>
-<table>
-  <thead>
-    <tr>
-      <th>ID</th>
-      <th>Hostname</th>
-      <th>Last Seen</th>
-      <th></th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody id="agent-rows"></tbody>
-</table>
+    <div id="path-manager" style="display:none;">
+        <h2 id="path-manager-title">Watched Paths</h2>
+        <input id="new-path" placeholder="/var/log/example.log">
+        <button onclick="addPath()">Add Path</button>
 
-<div id="path-manager" style="display:none;">
-  <h2 id="path-manager-title">Watched Paths</h2>
-
-  <input id="new-path" placeholder="/var/log/example.log">
-  <button onclick="addPath()">Add Path</button>
-
-  <table>
-    <thead>
-      <tr>
-        <th>Path</th>
-        <th>Enabled</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody id="path-rows"></tbody>
-  </table>
+        <table>
+            <thead>
+                <tr>
+                    <th>Path</th>
+                    <th>Enabled</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="path-rows"></tbody>
+        </table>
+    </div>
 </div>
-
-<script>
-document.getElementById('enrollment-result').innerHTML =
-  `<p>Run this on the target Linux machine:</p>
-   <code>curl -sL http://YOUR-SERVER:3000/install/linux.sh | bash</code>`;
-</script>
