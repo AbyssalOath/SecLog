@@ -804,16 +804,27 @@ set -e
 
 echo "Installing Seclog shipper..."
 
-ARCH=$(uname -m)
-
-curl -sL "https://github.com/LordSodomiser/SecLog/releases/latest/download/shipper-linux-x86_64" \
+curl -fsSL "https://github.com/LordSodomiser/SecLog/releases/latest/download/shipper-linux-x86_64" \
     -o /tmp/seclog-shipper
+
+# -f makes curl fail loudly (non-zero exit) on a 404/error instead of
+# silently saving the error page as if it were the binary -- combined
+# with `set -e` above, this stops the script immediately with a clear
+# error rather than installing a broken "binary" that fails at runtime.
+
+if ! file /tmp/seclog-shipper | grep -q "ELF"; then
+    echo "ERROR: downloaded file is not a valid Linux binary. Aborting."
+    echo "Check that a release with a 'shipper-linux-x86_64' asset exists."
+    exit 1
+fi
 
 sudo mkdir -p /opt/seclog-shipper
 sudo mv /tmp/seclog-shipper /opt/seclog-shipper/shipper
 sudo chmod +x /opt/seclog-shipper/shipper
 
-read -p "Enter enrollment token: " TOKEN
+# Read from the actual terminal, not stdin -- stdin here is the pipe
+# from `curl | bash`, which is already closed/empty by this point.
+read -p "Enter enrollment token: " TOKEN < /dev/tty
 
 sudo tee /etc/systemd/system/seclog-shipper.service > /dev/null <<EOF
 [Unit]
@@ -847,9 +858,7 @@ echo "Done. Check status: systemctl status seclog-shipper"
     )
 }
 
-async fn windows_install_script(
-    headers: HeaderMap,
-) -> impl axum::response::IntoResponse {
+async fn windows_install_script(headers: HeaderMap) -> impl axum::response::IntoResponse {
     let base_url = base_url_from_headers(&headers);
 
     let script = format!(
@@ -859,21 +868,24 @@ Write-Host "Installing Seclog shipper..."
 
 Invoke-WebRequest -Uri "https://github.com/LordSodomiser/SecLog/releases/latest/download/shipper-windows-x86_64.exe" -OutFile "C:\seclog-shipper.exe"
 
+# Basic sanity check -- a real .exe starts with the "MZ" byte signature.
+# If GitHub returned an error page instead of a binary, this catches it
+# before we try to run/register something broken.
+$bytes = Get-Content "C:\seclog-shipper.exe" -Encoding Byte -TotalCount 2
+if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
+    Write-Host "ERROR: downloaded file is not a valid Windows executable. Aborting."
+    exit 1
+}
+
+# When this script runs via `iwr ... | iex`, stdin is not the console --
+# Read-Host still works correctly in PowerShell's normal interactive
+# console (unlike bash's `read`), but we read explicitly here for clarity.
 $token = Read-Host "Enter enrollment token"
 
-[Environment]::SetEnvironmentVariable(
-    "SHIPPER_API_URL",
-    "{base_url}",
-    "Machine"
-)
+[Environment]::SetEnvironmentVariable("SHIPPER_API_URL", "{base_url}", "Machine")
+[Environment]::SetEnvironmentVariable("SECLOG_ENROLLMENT_TOKEN", $token, "Machine")
 
-[Environment]::SetEnvironmentVariable(
-    "SECLOG_ENROLLMENT_TOKEN",
-    $token,
-    "Machine"
-)
-
-Write-Host "Downloaded. Run C:\seclog-shipper.exe as Administrator to start."
+Write-Host "Downloaded. Run C:\seclog-shipper.exe as Administrator to start, or register it as a service (NSSM/sc.exe) for persistence."
 "#,
         base_url = base_url
     );

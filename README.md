@@ -39,6 +39,20 @@ docker compose up -d
 The dashboard shows the running version and flags when a newer release is
 available.
 
+## Releasing shipper binaries
+
+Cross-platform shipper builds are published via GitHub Actions when a
+version tag is pushed:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Check the **Actions** tab for build status, then confirm the resulting
+**Release** has `shipper-linux-x86_64`, `shipper-windows-x86_64.exe`, and
+`shipper-macos-x86_64` attached before pointing any install script at it.
+
 ## Adding an agent
 
 1. Log in as admin → **Agents** → **Generate Enrollment Token**.
@@ -74,3 +88,15 @@ cargo run --bin shipper    # shipper, against a local test file
   single-use, admin-issued enrollment token.
 - Admin-created accounts get a temporary password and must change it on
   first login.
+
+## Admin-created accounts
+
+Admins can create accounts directly from **Settings → Security** instead
+of relying on self-signup. New accounts get a random temporary password
+(shown once, copyable) and must set a real password on first login.
+
+> **Note:** secure cookies require either `https://` or accessing the
+> dashboard via `http://localhost:3000` directly on the server. Accessing
+> it via a LAN IP over plain HTTP will silently fail to persist the
+> session — put a TLS-terminating reverse proxy (e.g. Caddy) in front for
+> real network access.

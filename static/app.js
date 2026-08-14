@@ -98,10 +98,26 @@ async function generateEnrollmentToken() {
     if (response.ok) {
         const data = await response.json();
         const origin = window.location.origin;
+
         document.getElementById('enrollment-result').innerHTML =
-            `Token (one-time use, enter when prompted): <code>${data.token}</code><br><br>` +
-            `<strong>Linux:</strong><br><code>curl -sL ${origin}/install/linux.sh | bash</code><br><br>` +
+            `Token (one-time use): <code id="enrollment-token-value"></code> ` +
+            `<button id="copy-enrollment-token">Copy</button><br><br>` +
+            `<strong>Linux (sudo/root required):</strong><br><code>curl -sL ${origin}/install/linux.sh | bash</code><br><br>` +
             `<strong>Windows (PowerShell, as Administrator):</strong><br><code>iwr ${origin}/install/windows.ps1 | iex</code>`;
+
+        // textContent, not innerHTML -- the token is just data, never markup.
+        document.getElementById('enrollment-token-value').textContent = data.token;
+
+        document.getElementById('copy-enrollment-token').onclick = async () => {
+            try {
+                await navigator.clipboard.writeText(data.token);
+                const btn = document.getElementById('copy-enrollment-token');
+                btn.textContent = 'Copied';
+                setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+            } catch (err) {
+                alert('Copy failed — select and copy the token manually.');
+            }
+        };
     } else {
         document.getElementById('enrollment-result').innerText = 'Failed: ' + response.status;
     }

@@ -104,7 +104,7 @@
 
 				if (loginResp.ok) {
 					const data = await loginResp.json();
-					localStorage.setItem('must_change_password', data.must_change_password ? 'true' : 'false');
+					sessionStorage.setItem('must_change_password', data.must_change_password ? 'true' : 'false');
 					window.location.href = '/app.html';
 				}
 			} else if (response.status === 409) {
@@ -126,6 +126,9 @@
 		});
 		document.getElementById('signup-password').addEventListener('keydown', (e) => {
 			if (e.key === 'Enter') signup();
+		});
+		document.getElementById('signup-password-confirm').addEventListener('keydown', (e) => {
+    			if (e.key === 'Enter') signup();
 		});
 
 		async function checkSignupStatus() {
