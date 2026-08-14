@@ -210,7 +210,7 @@ async function deleteAgent(agentId) {
 function selectAgent(agentId, hostname) {
     selectedAgentId = agentId;
     document.getElementById('path-manager').style.display = 'block';
-    document.getElementById('path-manager-title').innerText = `Watched Paths — ${hostname}`;
+    document.getElementById('path-manager-title').innerText = `Watched Paths: ${hostname}`;
     loadPaths();
 }
 
