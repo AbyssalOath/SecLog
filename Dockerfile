@@ -1,7 +1,7 @@
 # --- Stage 1: build ---
 # Full Rust toolchain, used only to compile. This image is large,
 # but it never ships -- only its output does.
-FROM rust:latest AS builder
+FROM rust:bookworm AS builder
 
 WORKDIR /app
 
