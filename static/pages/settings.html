@@ -1,0 +1,59 @@
+<h1>Settings</h1>
+<div id="settings-access-result"></div>
+
+<div id="settings-content" style="display:none;">
+    <div class="tabs">
+        <a href="#" id="tab-link-general" onclick="event.preventDefault(); showTab('general')">General</a>
+        <a href="#" id="tab-link-security" onclick="event.preventDefault(); showTab('security')">Security</a>
+        <a href="#" id="tab-link-alerts" onclick="event.preventDefault(); showTab('alerts')">Alerts</a>
+    </div>
+
+    <div id="tab-general">
+        <div class="panel">
+            <h2>Account Access</h2>
+            <div class="panel-desc">Control how new accounts get created.</div>
+            <label class="switch-row">
+                Allow self-signup (new accounts can register themselves)
+                <span class="switch">
+                    <input type="checkbox" id="self-signup-toggle" onchange="updateSelfSignup()">
+                    <span class="switch-slider"></span>
+                </span>
+            </label>
+            <div id="general-result"></div>
+        </div>
+    </div>
+
+    <div id="tab-security" style="display:none;">
+        <div class="panel">
+            <h2>Multi-Factor Authentication</h2>
+            <div class="panel-desc">Not implemented yet — requires per-user TOTP secrets, QR provisioning, and a second login step.</div>
+        </div>
+
+        <div class="panel">
+            <h2>Users</h2>
+            <div class="panel-desc">New accounts get a temporary password and must change it on first login.</div>
+
+            <div class="inline-form">
+                <input id="new-user-username" placeholder="Username">
+                <select id="new-user-role">
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                </select>
+                <button onclick="createUser()">Add User</button>
+            </div>
+            <div id="create-user-result"></div>
+
+            <table>
+                <thead><tr><th>ID</th><th>Username</th><th>Role</th><th></th></tr></thead>
+                <tbody id="user-rows"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="tab-alerts" style="display:none;">
+        <div class="panel">
+            <h2>Webhooks &amp; Email</h2>
+            <div class="panel-desc">Not implemented yet — requires storing endpoint/SMTP config and wiring trigger points.</div>
+        </div>
+    </div>
+</div>

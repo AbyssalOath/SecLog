@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Seclog</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="has-sidebar">
+    <div class="page-content" id="content"></div>
+
+    <script src="auth.js"></script>
+    <script src="app.js"></script>
+    <script src="nav.js"></script>
+    <script src="router.js"></script>
+    <script>
+        requireAuth();
+        if (localStorage.getItem('must_change_password') === 'true') {
+            initForceChangePassword();
+    	} else {
+            renderSidebar();
+            const initialPath = location.hash.replace('#', '') || '/dashboard';
+            navigateTo(initialPath, false);
+    	}
+    </script>
+</body>
+</html>

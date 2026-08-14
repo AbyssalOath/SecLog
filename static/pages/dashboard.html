@@ -1,0 +1,24 @@
+<h1>Dashboard</h1>
+<div id="whoami"></div>
+
+<div id="version-badge" style="font-size:0.75rem; color:var(--text-dim); margin-bottom:1rem;"></div>
+
+<div class="stats-row">
+    <div class="stat-card">
+        <div class="stat-value" id="stat-total">—</div>
+        <div class="stat-label">Total Detections</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" id="stat-errors">—</div>
+        <div class="stat-label">High</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" id="stat-warns">—</div>
+        <div class="stat-label">Critical</div>
+    </div>
+</div>
+<input id="filter-box" placeholder="Filter by host, user, or message..." style="width:100%;" oninput="renderLogTable()">
+<table>
+    <thead><tr><th>ID</th><th>Severity</th><th>Host</th><th>User</th><th>Message</th></tr></thead>
+    <tbody id="log-rows"></tbody>
+</table>

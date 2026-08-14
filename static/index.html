@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Seclog</title>
+	<link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="auth-wrap">
+        <div class="auth-card">
+            <h1>SecLog</h1>
+            <div class="tagline">Security Log Monitor</div>
+
+            <div id="login-form">
+                <input id="username" placeholder="Username">
+                <input id="password" type="password" placeholder="Password">
+                <button onclick="login()">Sign In</button>
+		<div class="auth-switch" id="signup-link-wrap">No account? <a href="#" onclick="showSignup()">Create one</a></div>
+            </div>
+
+            <div id="signup-form" style="display:none;">
+                <input id="signup-username" placeholder="Username">
+                <input id="signup-password" type="password" placeholder="Password">
+		<input id="signup-password-confirm" type="password" placeholder="Confirm Password">
+		<div class="hint">Minimum 15 characters</div>
+                <button onclick="signup()">Create Account</button>
+                <div class="auth-switch">Have an account? <a href="#" onclick="showLogin()">Sign in</a></div>
+            </div>
+
+            <div id="result"></div>
+        </div>
+    </div>
+
+	<script>
+		function showSignup() {
+			document.getElementById('login-form').style.display = 'none';
+			document.getElementById('signup-form').style.display = 'block';
+			document.getElementById('result').innerText = '';
+		}
+
+		function showLogin() {
+			document.getElementById('signup-form').style.display = 'none';
+			document.getElementById('login-form').style.display = 'block';
+			document.getElementById('result').innerText = '';
+		}
+
+		async function login() {
+			const username = document.getElementById('username').value;
+			const password = document.getElementById('password').value;
+
+			const response = await fetch('/login', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username, password })
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				// The session itself now lives in an httpOnly cookie the
+				// server just set on this response -- nothing for JS to
+				// store. must_change_password is just a UX hint for which
+				// screen to show; the server enforces the real rule.
+				localStorage.setItem('must_change_password', data.must_change_password ? 'true' : 'false');
+				window.location.href = '/app.html';
+			} else {
+				document.getElementById('result').innerText =
+					'Login failed: ' + response.status;
+			}
+		}
+
+		async function signup() {
+			const username = document.getElementById('signup-username').value;
+			const password = document.getElementById('signup-password').value;
+			const confirmPassword = document.getElementById('signup-password-confirm').value;
+
+			if (password !== confirmPassword) {
+        			document.getElementById('result').innerText = 'Passwords do not match.';
+        			return;
+    			}
+
+			if (!username || password.length < 15) {
+				document.getElementById('result').innerText =
+					'Username required, password must be at least 15 characters.';
+				return;
+			}
+
+			const response = await fetch('/signup', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ username, password })
+			});
+
+			if (response.ok) {
+				// Account created -- log them straight in rather than
+				// making them re-type credentials on a separate screen.
+				document.getElementById('signup-username').value = username;
+				document.getElementById('signup-password').value = password;
+
+				const loginResp = await fetch('/login', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ username, password })
+				});
+
+				if (loginResp.ok) {
+					const data = await loginResp.json();
+					localStorage.setItem('must_change_password', data.must_change_password ? 'true' : 'false');
+					window.location.href = '/app.html';
+				}
+			} else if (response.status === 409) {
+				document.getElementById('result').innerText =
+					'That username is already taken.';
+			} else if (response.status === 403) {
+				document.getElementById('result').innerText =
+					'Self-signup is disable. Contact and administrator.';
+			} else {
+				document.getElementById('result').innerText =
+					'Signup failed: ' + response.status;
+			}
+		}
+
+		document.getElementById('password').addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') {
+				login();
+			}
+		});
+		document.getElementById('signup-password').addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') signup();
+		});
+
+		async function checkSignupStatus() {
+    			try {
+        			const resp = await fetch('/signup-status');
+        			const data = await resp.json();
+        			if (!data.enabled) {
+            				document.getElementById('signup-link-wrap').style.display = 'none';
+        			}
+    			} catch (e) { /* fail open visually -- server enforces regardless */ }
+		}
+		checkSignupStatus();
+	</script>
+</body>
+</html>

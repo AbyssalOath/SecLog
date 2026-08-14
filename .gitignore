@@ -1,0 +1,15 @@
+# Rust
+/target/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Seclog local secrets/state
+.seclog_agent_key
+.seclog_state_*
+.shipper_state_*
+
+# Logs
+*.log

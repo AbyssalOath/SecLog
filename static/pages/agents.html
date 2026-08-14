@@ -1,0 +1,36 @@
+<h1>Agents</h1>
+<div id="agents-access-result"></div>
+
+<div id="agents-content" style="display:none;">
+    <div class="panel">
+    	<h2>Enroll a New Agent</h2>
+    	<div class="panel-desc">Generate a one-time token, then run the shipper on the target machine with it. Hostname is detected automatically.</div>
+    	<button onclick="generateEnrollmentToken()">Generate Enrollment Token</button>
+    	<div id="enrollment-result"></div>
+	
+	document.getElementById('enrollment-result').innerHTML =
+    	`<p>Run this on the target Linux machine:</p>
+     	<code>curl -sL http://YOUR-SERVER:3000/install/linux.sh | bash</code>`;
+    </div>
+    
+    <h2>Register New Agent</h2>
+    <input id="new-hostname" placeholder="hostname (e.g. web-server-01)">
+    <button onclick="registerAgent()">Register</button>
+    <div id="register-result"></div>
+
+    <h2>Registered Agents</h2>
+    <table>
+	<thead><tr><th>ID</th><th>Hostname</th><th>Last Seen</th><th></th><th></th></tr></thead>
+        <tbody id="agent-rows"></tbody>
+    </table>
+
+    <div id="path-manager" style="display:none;">
+        <h2 id="path-manager-title">Watched Paths</h2>
+        <input id="new-path" placeholder="/var/log/example.log">
+        <button onclick="addPath()">Add Path</button>
+        <table>
+            <thead><tr><th>Path</th><th>Enabled</th><th></th></tr></thead>
+            <tbody id="path-rows"></tbody>
+        </table>
+    </div>
+</div>
