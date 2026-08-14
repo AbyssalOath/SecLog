@@ -14,7 +14,7 @@ services:
       - seclog_db_data:/var/lib/mysql
 
   app:
-    image: ghcr.io/LordSodomiser/seclog:latest
+    image: ghcr.io/lordsodomiser/seclog:latest
     container_name: seclog-app
     restart: unless-stopped
     depends_on:
