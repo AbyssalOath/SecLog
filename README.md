@@ -107,6 +107,101 @@ present before deploying the installer.
 > unified log and the Windows Security event log; no manual path
 > configuration is needed for those sources.
 
+### Recommended Linux log paths
+
+The shipper's parser looks for security-relevant events including SSH
+authentication, sudo/su activity, account changes, firewall events, cron
+changes, shell-history activity, and system/service events.
+
+Recommended paths vary by distribution:
+
+| Distribution | Recommended paths | What they cover |
+|---|---|---|
+| **Ubuntu / Debian** | `/var/log/auth.log` | SSH, sudo, su, authentication, account activity |
+| | `/var/log/syslog` | General system/service and firewall messages |
+| | `/var/log/kern.log` | Kernel and network-related events |
+| **RHEL / CentOS / Rocky / AlmaLinux** | `/var/log/secure` | SSH, sudo, su, authentication, account activity |
+| | `/var/log/messages` | General system/service and firewall messages |
+| | `/var/log/audit/audit.log` | Linux audit events, when `auditd` is enabled |
+| **Fedora** | `/var/log/secure` | SSH, sudo, su, authentication, account activity |
+| | `/var/log/messages` | General system/service messages, when present |
+| | `/var/log/audit/audit.log` | Linux audit events, when `auditd` is enabled |
+| **Arch Linux** | `/var/log/auth.log`* | Authentication events if a syslog daemon is configured |
+| | `/var/log/messages.log`* | General system messages if a syslog daemon is configured |
+| **openSUSE / SLES** | `/var/log/messages` | General system and service messages |
+| | `/var/log/audit/audit.log` | Linux audit events, when `auditd` is enabled |
+
+\* Arch Linux does not normally provide these traditional log files by
+default. It primarily uses `systemd-journald`. A syslog daemon such as
+rsyslog or syslog-ng must be configured if you want traditional files for
+the shipper to watch.
+
+For most installations, start with the authentication log for the
+distribution:
+
+- **Ubuntu / Debian:** `/var/log/auth.log`
+- **RHEL / CentOS / Rocky / AlmaLinux / Fedora:** `/var/log/secure`
+- **Arch:** configure persistent journald or a syslog daemon first
+
+For broader coverage, also add the applicable system, audit, and firewall
+logs. The parser specifically recognizes events such as:
+
+- SSH failed logins and invalid users
+- SSH successful logins
+- Changes to `authorized_keys`
+- Repeated authentication failures
+- Unauthorized sudo attempts
+- Failed `sudo` and `su` attempts
+- Root sessions
+- User and group modifications
+- Password changes
+- Firewall `DENY` / `DROP` events
+- `iptables`, `ufw`, and `firewalld` events
+- Possible port scans
+- Cron modifications
+- Shell-history access
+- Service starts
+- Segmentation faults
+
+### Example agent configurations
+
+**Ubuntu / Debian:**
+
+```text
+/var/log/auth.log
+/var/log/syslog
+/var/log/kern.log
+
+**RHEL / CentOS / Rocky / AlmaLinux:**
+
+```text
+/var/log/secure
+/var/log/messages
+/var/log/audit/audit.log
+
+**Fedora:**
+
+```text
+/var/log/secure
+/var/log/audit/audit.log
+
+**Arch Linux:**
+```text
+/var/log/auth.log
+/var/log/messages.log
+
+> **Note for Arch Linux:** Only use the paths above if a syslog daemon is
+> configured to write those files. Otherwise, Arch primarily uses
+> systemd-journald, and the shipper should use a dedicated journald
+> watcher for those events.
+
+**openSUSE / SLES:**
+```text
+/var/log/messages
+/var/log/audit/audit.log
+
+> **Tip:** You do not need to configure every path. Start with the authentication log for your distribution, then add the system, audit, and firewall logs that are available on your machine.
+
 ## Development
 
 ```bash
