@@ -25,8 +25,8 @@ cd SecLog
 ```
 
 This generates a `.env` with strong random database credentials and starts
-the server + database. Visit `http://<server-ip>:3000` **(the first
-account created becomes admin automatically.)**
+the server + database. Visit `http://<server-ip>:3000` **(the first**
+**account created becomes admin automatically.)**
 
 ### Updating the server
 
@@ -42,16 +42,51 @@ available.
 ## Releasing shipper binaries
 
 Cross-platform shipper builds are published via GitHub Actions when a
-version tag is pushed:
+version tag is pushed.
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
+Before creating a release, keep `Cargo.toml` and `VERSION` synchronized
+with the release version. For example, for version `vX.Y.Z`:
+
+In `Cargo.toml`:
+
+```toml
+version = "X.Y.Z"
 ```
 
+In `VERSION`:
+
+```text
+X.Y.Z
+```
+
+Commit and push the version change:
+
+```bash
+git add Cargo.toml VERSION
+git commit -m "Bump version to X.Y.Z"
+git push origin main
+```
+
+Then create and push the corresponding Git tag:
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+GitHub Actions will build the shipper for Linux, Windows, and macOS and
+attach the binaries to the GitHub Release.
+
 Check the **Actions** tab for build status, then confirm the resulting
-**Release** has `shipper-linux-x86_64`, `shipper-windows-x86_64.exe`, and
-`shipper-macos-x86_64` attached before pointing any install script at it.
+**Release** has these assets attached:
+
+- `shipper-linux-x86_64`
+- `shipper-windows-x86_64.exe`
+- `shipper-macos-x86_64`
+
+The install scripts download the appropriate shipper binary from the
+latest GitHub Release, so verify that the required Release assets are
+present before deploying the installer.
 
 ## Adding an agent
 
