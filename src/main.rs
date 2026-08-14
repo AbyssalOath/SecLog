@@ -868,18 +868,12 @@ Write-Host "Installing Seclog shipper..."
 
 Invoke-WebRequest -Uri "https://github.com/LordSodomiser/SecLog/releases/latest/download/shipper-windows-x86_64.exe" -OutFile "C:\seclog-shipper.exe"
 
-# Basic sanity check -- a real .exe starts with the "MZ" byte signature.
-# If GitHub returned an error page instead of a binary, this catches it
-# before we try to run/register something broken.
 $bytes = Get-Content "C:\seclog-shipper.exe" -Encoding Byte -TotalCount 2
-if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
+if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {{
     Write-Host "ERROR: downloaded file is not a valid Windows executable. Aborting."
     exit 1
-}
+}}
 
-# When this script runs via `iwr ... | iex`, stdin is not the console --
-# Read-Host still works correctly in PowerShell's normal interactive
-# console (unlike bash's `read`), but we read explicitly here for clarity.
 $token = Read-Host "Enter enrollment token"
 
 [Environment]::SetEnvironmentVariable("SHIPPER_API_URL", "{base_url}", "Machine")
