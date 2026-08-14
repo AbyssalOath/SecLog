@@ -12,7 +12,7 @@ async function initDashboard() {
     const versionData = await versionResp.json();
     const badge = document.getElementById('version-badge');
     if (versionData.update_available) {
-    	badge.textContent = `v${versionData.version} — Update available (v${versionData.latest_version})`;
+    	badge.textContent = `v${versionData.version} -> Update available (v${versionData.latest_version})`;
     	badge.classList.add('update-available');
     } else {
     	badge.textContent = `v${versionData.version}`;
