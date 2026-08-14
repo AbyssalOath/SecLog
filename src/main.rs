@@ -292,7 +292,7 @@ fn check_same_origin(parts: &Parts) -> Result<(), StatusCode> {
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.split(',').next())
         .map(str::trim)
-        .unwrap_or("https");
+        .unwrap_or("http");
 
     let expected = format!("{}://{}", scheme, host);
 
@@ -476,29 +476,25 @@ async fn logout(
 #[derive(serde::Serialize)]
 struct SignupStatusResponse {
     enabled: bool,
+    bootstrap: bool,
 }
 
 async fn signup_status(
     State(state): State<AppState>,
 ) -> Result<Json<SignupStatusResponse>, StatusCode> {
-    let self_signup_enabled =
-        db::get_self_signup_enabled(&state.pool)
-            .await
-            .map_err(|e| {
-                eprintln!("DB error: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+    let self_signup_enabled = db::get_self_signup_enabled(&state.pool).await.map_err(|e| {
+        eprintln!("DB error: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
-    let user_count = db::get_all_users(&state.pool)
-        .await
-        .map(|users| users.len())
-        .map_err(|e| {
-            eprintln!("DB error: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let user_count = db::get_all_users(&state.pool).await.map(|u| u.len()).map_err(|e| {
+        eprintln!("DB error: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     Ok(Json(SignupStatusResponse {
         enabled: user_count == 0 || self_signup_enabled,
+        bootstrap: user_count == 0,
     }))
 }
 

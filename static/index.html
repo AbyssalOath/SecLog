@@ -49,6 +49,7 @@
 
 			const response = await fetch('/login', {
 				method: 'POST',
+				credentials: 'include',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ username, password })
 			});
@@ -59,7 +60,7 @@
 				// server just set on this response -- nothing for JS to
 				// store. must_change_password is just a UX hint for which
 				// screen to show; the server enforces the real rule.
-				localStorage.setItem('must_change_password', data.must_change_password ? 'true' : 'false');
+				sessionStorage.setItem('must_change_password', data.must_change_password ? 'true' : 'false');
 				window.location.href = '/app.html';
 			} else {
 				document.getElementById('result').innerText =
@@ -134,6 +135,9 @@
         			if (!data.enabled) {
             				document.getElementById('signup-link-wrap').style.display = 'none';
         			}
+				if (data.bootstrap) {
+					showSignup();
+				}
     			} catch (e) { /* fail open visually -- server enforces regardless */ }
 		}
 		checkSignupStatus();

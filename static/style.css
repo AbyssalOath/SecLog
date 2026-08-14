@@ -210,3 +210,22 @@ select {
 .topbar-logout:hover { background: rgba(212,52,44,0.15); }
 
 .hint { color: var(--text-dim); font-size: 0.7rem; margin: -0.4rem 0 0.75rem; text-align: left; }
+
+.version-box {
+    display: inline-block;
+    background: var(--panel);
+    border: 1px solid var(--blood-bright);
+    color: var(--blood-bright);
+    padding: 0.35rem 0.9rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: bold;
+    box-shadow: 0 0 8px rgba(212,52,44,0.6);
+    margin-bottom: 1.5rem;
+}
+.version-box.update-available {
+    background: var(--blood);
+    color: #fff;
+    border-color: #fff;
+    animation: pulse-red 1.6s ease-in-out infinite;
+}

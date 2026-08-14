@@ -12,9 +12,11 @@ async function initDashboard() {
     const versionData = await versionResp.json();
     const badge = document.getElementById('version-badge');
     if (versionData.update_available) {
-    	badge.innerHTML = `v${versionData.version} — <span style="color:var(--blood-bright)">Update available (v${versionData.latest_version})</span>`;
+    	badge.textContent = `v${versionData.version} — Update available (v${versionData.latest_version})`;
+    	badge.classList.add('update-available');
     } else {
-    	badge.innerText = `v${versionData.version}`;
+    	badge.textContent = `v${versionData.version}`;
+    	badge.classList.remove('update-available');
     }
 
     const response = await authFetch('/logs');
@@ -95,10 +97,11 @@ async function generateEnrollmentToken() {
     const response = await authFetch('/agents/enrollment-token', { method: 'POST' });
     if (response.ok) {
         const data = await response.json();
+        const origin = window.location.origin;
         document.getElementById('enrollment-result').innerHTML =
-            `Token (one-time use): <code>${data.token}</code><br>` +
-            `Run on target machine:<br>` +
-            `<code>SHIPPER_API_URL=http://YOUR-SERVER:3000 SECLOG_ENROLLMENT_TOKEN=${data.token} ./shipper</code>`;
+            `Token (one-time use, enter when prompted): <code>${data.token}</code><br><br>` +
+            `<strong>Linux:</strong><br><code>curl -sL ${origin}/install/linux.sh | bash</code><br><br>` +
+            `<strong>Windows (PowerShell, as Administrator):</strong><br><code>iwr ${origin}/install/windows.ps1 | iex</code>`;
     } else {
         document.getElementById('enrollment-result').innerText = 'Failed: ' + response.status;
     }
@@ -428,6 +431,7 @@ async function submitPasswordChange() {
     // actually want is to show an error and let them retry.
     const response = await fetch('/change-password', {
     	method: 'POST',
+	credentials: 'include',
     	headers: {
             'Content-Type': 'application/json'
     	},
@@ -438,6 +442,7 @@ async function submitPasswordChange() {
     });
 
     if (response.ok) {
+	sessionStorage.removeItem('must_change_password');
         renderSidebar();
         navigateTo('/dashboard');
     } else if (response.status === 401) {

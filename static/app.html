@@ -12,8 +12,7 @@
     <script src="nav.js"></script>
     <script src="router.js"></script>
     <script>
-        requireAuth();
-        if (localStorage.getItem('must_change_password') === 'true') {
+	if (sessionStorage.getItem('must_change_password') === 'true') {
             initForceChangePassword();
     	} else {
             renderSidebar();

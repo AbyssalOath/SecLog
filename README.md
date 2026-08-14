@@ -50,6 +50,9 @@ available.
    watched (e.g. `/var/log/auth.log`). Changes take effect within ~30s,
    no restart needed.
 
+> **Session model:** the dashboard uses secure, httpOnly cookies for login
+> sessions — nothing sensitive is ever stored in browser localStorage.
+
 > **macOS/Windows note:** these platforms don't expose security events as
 > flat text files. The shipper includes dedicated watchers for the macOS
 > unified log and the Windows Security event log; no manual path

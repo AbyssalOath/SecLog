@@ -115,14 +115,12 @@ pub async fn create_user(
     username: &str,
     password_hash: &str,
 ) -> Result<Option<i32>, sqlx::Error> {
-    // Check if any users exist yet. This determines where the new
-    // account should be bootstrapped as admin
     let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
         .fetch_one(pool)
         .await?;
 
-    let role = if count.0 == 0 { "admin" } else { "user" };
-
+    let is_bootstrap = count.0 == 0;
+    let role = if is_bootstrap { "admin" } else { "user" };
 
     let result = sqlx::query(
         "INSERT IGNORE INTO users (username, password_hash, role) VALUES (?, ?, ?)",
@@ -134,9 +132,12 @@ pub async fn create_user(
     .await?;
 
     if result.rows_affected() > 0 {
+        if is_bootstrap {
+            set_self_signup_enabled(pool, false).await?;
+        }
         Ok(Some(result.last_insert_id() as i32))
     } else {
-        Ok(None) // username already existed
+        Ok(None)
     }
 }
 
