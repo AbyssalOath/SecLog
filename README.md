@@ -171,6 +171,7 @@ logs. The parser specifically recognizes events such as:
 /var/log/auth.log
 /var/log/syslog
 /var/log/kern.log
+```
 
 **RHEL / CentOS / Rocky / AlmaLinux:**
 
@@ -178,17 +179,20 @@ logs. The parser specifically recognizes events such as:
 /var/log/secure
 /var/log/messages
 /var/log/audit/audit.log
+```
 
 **Fedora:**
 
 ```text
 /var/log/secure
 /var/log/audit/audit.log
+```
 
 **Arch Linux:**
 ```text
 /var/log/auth.log
 /var/log/messages.log
+```
 
 > **Note for Arch Linux:** Only use the paths above if a syslog daemon is
 > configured to write those files. Otherwise, Arch primarily uses
@@ -199,6 +203,7 @@ logs. The parser specifically recognizes events such as:
 ```text
 /var/log/messages
 /var/log/audit/audit.log
+```
 
 > **Tip:** You do not need to configure every path. Start with the authentication log for your distribution, then add the system, audit, and firewall logs that are available on your machine.
 
