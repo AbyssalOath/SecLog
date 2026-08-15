@@ -16,8 +16,36 @@
         <div class="stat-label">Critical</div>
     </div>
 </div>
-<input id="filter-box" placeholder="Filter by host, user, or message..." style="width:100%;" oninput="renderLogTable()">
-<table>
-    <thead><tr><th>ID</th><th>Severity</th><th>Host</th><th>User</th><th>Message</th></tr></thead>
-    <tbody id="log-rows"></tbody>
-</table>
+
+<div id="host-summary-view">
+    <input id="host-filter-box" placeholder="Filter by host..." style="width:100%;" oninput="renderHostTable()">
+    <table>
+        <thead>
+            <tr>
+                <th>Host</th>
+                <th>Total</th>
+                <th>Critical</th>
+                <th>High</th>
+                <th>Medium</th>
+                <th>Low</th>
+            </tr>
+        </thead>
+        <tbody id="host-rows"></tbody>
+    </table>
+</div>
+
+<div id="host-detail-view" style="display:none;">
+    <a href="#" class="back-link" onclick="event.preventDefault(); showHostSummary();">&larr; Back to hosts</a>
+    <h2 id="host-detail-title"></h2>
+    <div class="panel-desc">Most severe first. Filter searches only the rows on the current page.</div>
+    <input id="detail-filter-box" placeholder="Filter by user or message..." style="width:100%;" oninput="renderDetailTable()">
+    <table class="log-detail-table">
+        <thead><tr><th>ID</th><th>Severity</th><th>User</th><th>Message</th></tr></thead>
+        <tbody id="log-rows"></tbody>
+    </table>
+    <div class="pagination-row">
+        <button id="detail-prev" onclick="changeDetailPage(-1)">&laquo; Prev</button>
+        <span id="detail-page-info"></span>
+        <button id="detail-next" onclick="changeDetailPage(1)">Next &raquo;</button>
+    </div>
+</div>

@@ -8,9 +8,9 @@
     --blood-bright: #d4342c;
     --topbar-height: 56px;
 }
-
+ 
 * { box-sizing: border-box; }
-
+ 
 body {
     background: var(--bg);
     color: var(--text);
@@ -18,9 +18,9 @@ body {
     margin: 0;
     font-size: 14px;
 }
-
+ 
 body.has-sidebar { padding-top: var(--topbar-height); }
-
+ 
 .topbar {
     position: fixed;
     top: 0; left: 0; right: 0;
@@ -53,9 +53,9 @@ body.has-sidebar { padding-top: var(--topbar-height); }
 .topbar-nav a.active { color: var(--blood-bright); border-bottom: 2px solid var(--blood-bright); }
 .topbar-logout { color: var(--text-dim); text-decoration: none; font-size: 0.8rem; text-transform: uppercase; }
 .topbar-logout:hover { color: var(--blood-bright); }
-
+ 
 .page-content { padding: 2rem 2.5rem; max-width: 1200px; margin: 0 auto; }
-
+ 
 h1 {
     color: var(--text);
     font-size: 1.3rem;
@@ -65,7 +65,7 @@ h1 {
     margin-bottom: 1.5rem;
 }
 h1::before { content: "// "; color: var(--blood-bright); }
-
+ 
 /* Bordered panel -- used for settings sections, auth card, etc. */
 .panel {
     background: var(--panel);
@@ -84,7 +84,7 @@ h1::before { content: "// "; color: var(--blood-bright); }
     padding: 0;
 }
 .panel .panel-desc { color: var(--text-dim); font-size: 0.8rem; margin-bottom: 1rem; }
-
+ 
 .stats-row { display: flex; gap: 1rem; margin: 0 0 1.5rem; }
 .stat-card {
     background: var(--panel);
@@ -95,7 +95,7 @@ h1::before { content: "// "; color: var(--blood-bright); }
 }
 .stat-card .stat-value { font-size: 1.8rem; font-weight: bold; color: var(--text); }
 .stat-card .stat-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 0.25rem; }
-
+ 
 input, button {
     background: #0d0b0a;
     color: var(--text);
@@ -116,7 +116,7 @@ button {
     font-size: 0.75rem;
 }
 button:hover { background: var(--blood-bright); }
-
+ 
 .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; }
 .tabs a {
     color: var(--text-dim);
@@ -131,18 +131,53 @@ button:hover { background: var(--blood-bright); }
 }
 .tabs a:hover { color: var(--text); }
 .tabs a.active { color: #fff; background: var(--blood); border-color: var(--blood-bright); }
-
+ 
 input[type="checkbox"] { accent-color: var(--blood-bright); width: auto; margin-right: 0.5rem; }
 label { display: flex; align-items: center; color: var(--text); font-size: 0.9rem; margin: 0.75rem 0; }
-
+ 
 table { width: 100%; border-collapse: collapse; margin-top: 1rem; border: 1px solid var(--border); }
 th, td { padding: 0.6rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
 th { background: var(--panel); color: var(--text-dim); text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.08em; font-weight: normal; }
 tr:hover td { background: rgba(255,255,255,0.02); }
-
+ 
 .level-Low { color: var(--text-dim); }
 .level-Medium { color: #c48a1e; }
 .level-High { color: var(--blood-bright); font-weight: bold; }
+ 
+/* Dashboard: host-summary rows and the drill-down detail view */
+.host-row { cursor: pointer; }
+.host-row:hover { background: rgba(212, 52, 44, 0.07); }
+.host-link { color: var(--blood-bright); }
+.back-link { color: var(--text-dim); text-decoration: none; font-size: 0.85rem; }
+.back-link:hover { color: var(--blood-bright); }
+ 
+/* Message column: this is what stops one long log line from stretching
+   the table off-screen and forcing horizontal scroll across the whole
+   dashboard. table-layout: fixed makes the browser respect the column
+   width instead of expanding to fit content; ellipsis + the row's title
+   tooltip (set in app.js) keep the full text one hover away. */
+.log-detail-table { table-layout: fixed; }
+.log-detail-table th:nth-child(1), .log-detail-table td:nth-child(1) { width: 4rem; }
+.log-detail-table th:nth-child(2), .log-detail-table td:nth-child(2) { width: 6rem; }
+.log-detail-table th:nth-child(3), .log-detail-table td:nth-child(3) { width: 8rem; }
+.message-cell {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: help;
+}
+ 
+.pagination-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 1rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+}
+.pagination-row button:disabled { opacity: 0.4; cursor: not-allowed; }
+ 
 .level-Critical {
     color: #fff;
     background: var(--blood);
@@ -151,9 +186,9 @@ tr:hover td { background: rgba(255,255,255,0.02); }
     font-weight: bold;
     animation: pulse-red 1.4s ease-in-out infinite;
 }
-
+ 
 #result, #access-result, #general-result { color: var(--blood-bright); margin-top: 0.5rem; font-size: 0.85rem; }
-
+ 
 /* Auth (login/signup) card */
 .auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
 .auth-card {
@@ -171,7 +206,7 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .auth-card button { width: 100%; padding: 0.7rem; margin-top: 0.5rem; }
 .auth-switch { margin-top: 1rem; font-size: 0.8rem; color: var(--text-dim); }
 .auth-switch a { color: var(--blood-bright); text-decoration: none; }
-
+ 
 .switch-row { display: flex; align-items: center; justify-content: space-between; max-width: 480px; }
 .switch { position: relative; display: inline-block; width: 42px; height: 22px; }
 .switch input { opacity: 0; width: 0; height: 0; }
@@ -185,13 +220,13 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 }
 .switch input:checked + .switch-slider { background: rgba(212,52,44,0.25); }
 .switch input:checked + .switch-slider::before { transform: translateX(20px); background: var(--blood-bright); }
-
+ 
 .inline-form { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
 select {
     background: #0d0b0a; color: var(--text); border: 1px solid var(--border);
     padding: 0.6rem 0.8rem; font-family: inherit; font-size: 0.85rem; border-radius: 3px;
 }
-
+ 
 @keyframes pulse-red {
     0%, 100% { box-shadow: 0 0 4px rgba(212,52,44,0.4); }
     50% { box-shadow: 0 0 10px rgba(212,52,44,0.9); }
@@ -208,9 +243,9 @@ select {
     animation: pulse-red 2.5s ease-in-out infinite;
 }
 .topbar-logout:hover { background: rgba(212,52,44,0.15); }
-
+ 
 .hint { color: var(--text-dim); font-size: 0.7rem; margin: -0.4rem 0 0.75rem; text-align: left; }
-
+ 
 .version-box {
     display: inline-block;
     background: var(--panel);
