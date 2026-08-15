@@ -1,0 +1,26 @@
+# install.sh generates the real Caddyfile for you based on your answers
+# and writes it as `Caddyfile` (gitignored, mounted into the caddy
+# container at /etc/caddy/Caddyfile). This file is just a reference for
+# what it produces, or a starting point if you'd rather write it by hand.
+#
+# NOTE: when you save this into your repo, name it exactly `Caddyfile.example`
+# (no .txt) -- the .txt extension here exists only so it previews correctly
+# in chat.
+ 
+# --- Option A: you have a real domain pointed at this server ---
+# Caddy will request and renew a Let's Encrypt certificate automatically.
+ 
+example.com {
+    reverse_proxy app:3000
+}
+ 
+# --- Option B: bare IP / no domain ---
+# Caddy issues a self-signed cert from its internal CA. Browsers will show
+# a certificate warning on first visit -- that's expected without a domain,
+# and the __Host- session cookie still works fine since the connection is
+# HTTPS either way.
+ 
+:443 {
+    tls internal
+    reverse_proxy app:3000
+}

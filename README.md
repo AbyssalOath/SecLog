@@ -25,8 +25,27 @@ cd SecLog
 ```
 
 This generates a `.env` with strong random database credentials and starts
-the server + database. Visit `http://<server-ip>:3000` **(the first**
-**account created becomes admin automatically.)**
+the server + database. The first account created via the dashboard
+automatically becomes admin.
+
+Seclog's session cookie is browser-enforced HTTPS-only (see
+[Security notes](#security-notes)), so `install.sh` will ask how you want
+to handle TLS:
+
+- **You already run a reverse proxy** (NGINX Proxy Manager, Traefik, etc.)
+  the installer skips Caddy and prints the upstream address
+  (`http://<this-host-ip>:3000`) to point your proxy at. Just make sure
+  your proxy terminates HTTPS on the browser-facing side.
+- **You don't have one:** the installer sets up [Caddy](https://caddyserver.com/)
+  for you automatically. Give it a domain name and it obtains a real
+  Let's Encrypt certificate with no further config. Leave it blank and
+  it self-signs a certificate instead, so a bare LAN/server IP still
+  works over `https://` your browser will show a one-time certificate
+  warning in that case, which is expected.
+
+Either way, once it's running, visit the dashboard over `https://` (via
+Caddy or your own proxy) rather than `http://<ip>:3000` directly, plain
+HTTP won't let the session cookie persist.
 
 ### Updating the server
 
@@ -35,6 +54,10 @@ git pull origin main
 docker compose pull
 docker compose up -d
 ```
+
+Your `COMPOSE_PROFILES` setting in `.env` (set once by `install.sh`) is
+picked up automatically, so this brings Caddy back up too if you're using
+it, no extra flags needed.
 
 The dashboard shows the running version and flags when a newer release is
 available.
@@ -100,7 +123,7 @@ present before deploying the installer.
    no restart needed.
 
 > **Session model:** the dashboard uses secure, httpOnly cookies for login
-> sessions — nothing sensitive is ever stored in browser localStorage.
+> sessions, nothing sensitive is ever stored in browser localStorage.
 
 > **macOS/Windows note:** these platforms don't expose security events as
 > flat text files. The shipper includes dedicated watchers for the macOS
@@ -223,15 +246,14 @@ cargo run --bin shipper    # shipper, against a local test file
   single-use, admin-issued enrollment token.
 - Admin-created accounts get a temporary password and must change it on
   first login.
+- The session cookie uses the browser-enforced `__Host-` prefix, which
+  requires `https://`. Accessing the dashboard over plain `http://` on a
+  LAN/server IP will silently fail to persist the session. See
+  [Server installation](#server-installation) for how `install.sh` sets
+  up TLS (via Caddy or your own reverse proxy).
 
 ## Admin-created accounts
 
 Admins can create accounts directly from **Settings → Security** instead
 of relying on self-signup. New accounts get a random temporary password
 (shown once, copyable) and must set a real password on first login.
-
-> **Note:** secure cookies require either `https://` or accessing the
-> dashboard via `http://localhost:3000` directly on the server. Accessing
-> it via a LAN IP over plain HTTP will silently fail to persist the
-> session — put a TLS-terminating reverse proxy (e.g. Caddy) in front for
-> real network access.

@@ -17,7 +17,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
+ 
   app:
     image: ghcr.io/lordsodomiser/seclog:latest
     container_name: seclog-app
@@ -38,6 +38,29 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-
+ 
+  # Optional. Only starts if the "caddy" profile is active, which install.sh
+  # sets via COMPOSE_PROFILES in .env when you choose to let it manage TLS.
+  # If you're fronting seclog with your own reverse proxy (NGINX Proxy
+  # Manager, Traefik, etc.) instead, leave this profile off and point your
+  # proxy at app:3000 -- see README for why HTTPS on the browser-facing hop
+  # is required.
+  caddy:
+    image: caddy:2
+    container_name: seclog-caddy
+    restart: unless-stopped
+    profiles: ["caddy"]
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - seclog_caddy_data:/data
+      - seclog_caddy_config:/config
+ 
 volumes:
   seclog_db_data:
+  seclog_caddy_data:
+  seclog_caddy_config:
