@@ -33,18 +33,18 @@ Seclog's session cookie is browser-enforced HTTPS-only (see
 to handle TLS:
 
 - **You already run a reverse proxy** (NGINX Proxy Manager, Traefik, etc.)
-  the installer skips Caddy and prints the upstream address
+  — the installer skips Caddy and prints the upstream address
   (`http://<this-host-ip>:3000`) to point your proxy at. Just make sure
   your proxy terminates HTTPS on the browser-facing side.
-- **You don't have one:** the installer sets up [Caddy](https://caddyserver.com/)
+- **You don't have one** — the installer sets up [Caddy](https://caddyserver.com/)
   for you automatically. Give it a domain name and it obtains a real
   Let's Encrypt certificate with no further config. Leave it blank and
   it self-signs a certificate instead, so a bare LAN/server IP still
-  works over `https://` your browser will show a one-time certificate
+  works over `https://` — your browser will show a one-time certificate
   warning in that case, which is expected.
 
 Either way, once it's running, visit the dashboard over `https://` (via
-Caddy or your own proxy) rather than `http://<ip>:3000` directly, plain
+Caddy or your own proxy) rather than `http://<ip>:3000` directly — plain
 HTTP won't let the session cookie persist.
 
 ### Updating the server
@@ -57,7 +57,7 @@ docker compose up -d
 
 Your `COMPOSE_PROFILES` setting in `.env` (set once by `install.sh`) is
 picked up automatically, so this brings Caddy back up too if you're using
-it, no extra flags needed.
+it — no extra flags needed.
 
 The dashboard shows the running version and flags when a newer release is
 available.
@@ -123,7 +123,7 @@ present before deploying the installer.
    no restart needed.
 
 > **Session model:** the dashboard uses secure, httpOnly cookies for login
-> sessions, nothing sensitive is ever stored in browser localStorage.
+> sessions — nothing sensitive is ever stored in browser localStorage.
 
 > **macOS/Windows note:** these platforms don't expose security events as
 > flat text files. The shipper includes dedicated watchers for the macOS
@@ -136,15 +136,16 @@ present before deploying the installer.
 > check `ls -Z /opt/seclog-shipper/shipper` for a context like
 > `user_tmp_t`. Fix it with:
 > ```bash
-> sudo restorecon -v /opt/seclog-shipper/shipper
-> ```
-> If that doesn't resolve it, pin the context explicitly:
-> ```bash
 > sudo semanage fcontext -a -t bin_t "/opt/seclog-shipper/shipper"
 > sudo restorecon -v /opt/seclog-shipper/shipper
+> sudo systemctl restart seclog-shipper
 > ```
 > (`semanage` is in the `policycoreutils-python-utils` package if it's
-> not already installed.)
+> not already installed: `sudo dnf install policycoreutils-python-utils`.)
+> `restorecon` alone often isn't enough here — it only resets a file to
+> whatever the policy database already maps that exact path to, and most
+> systems have no existing rule for `/opt/seclog-shipper`. `semanage`
+> registers that rule first, which is what `restorecon` then applies.
 
 ### Recommended Linux log paths
 
@@ -264,7 +265,7 @@ cargo run --bin shipper    # shipper, against a local test file
   first login.
 - The session cookie uses the browser-enforced `__Host-` prefix, which
   requires `https://`. Accessing the dashboard over plain `http://` on a
-  LAN/server IP will silently fail to persist the session. See
+  LAN/server IP will silently fail to persist the session — see
   [Server installation](#server-installation) for how `install.sh` sets
   up TLS (via Caddy or your own reverse proxy).
 

@@ -824,8 +824,22 @@ sudo chmod +x /opt/seclog-shipper/shipper
 
 # On SELinux systems (Fedora/RHEL/Rocky/AlmaLinux), `mv` preserves the
 # file's original context from /tmp (user_tmp_t) instead of picking up
-# a context systemd is allowed to execute. restorecon fixes that. This
-# is a no-op -- and safely skipped -- on distros without SELinux.
+# a context systemd is allowed to execute.
+#
+# restorecon alone only resets a file to whatever the policy database
+# already maps that path to -- if there's no existing rule for
+# /opt/seclog-shipper, there's nothing to restore *to* and it's a no-op.
+# semanage fcontext registers that rule explicitly first, so restorecon
+# actually has something to apply. Both steps are safely skipped on
+# distros without SELinux tooling.
+if command -v semanage >/dev/null 2>&1; then
+    sudo semanage fcontext -a -t bin_t "/opt/seclog-shipper/shipper" 2>/dev/null || \
+        sudo semanage fcontext -m -t bin_t "/opt/seclog-shipper/shipper"
+elif command -v restorecon >/dev/null 2>&1; then
+    echo "NOTE: semanage not found -- install policycoreutils-python-utils"
+    echo "for a more reliable SELinux fix if the service fails to start."
+fi
+
 if command -v restorecon >/dev/null 2>&1; then
     sudo restorecon -v /opt/seclog-shipper/shipper
 fi
