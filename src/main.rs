@@ -822,6 +822,14 @@ sudo mkdir -p /opt/seclog-shipper
 sudo mv /tmp/seclog-shipper /opt/seclog-shipper/shipper
 sudo chmod +x /opt/seclog-shipper/shipper
 
+# On SELinux systems (Fedora/RHEL/Rocky/AlmaLinux), `mv` preserves the
+# file's original context from /tmp (user_tmp_t) instead of picking up
+# a context systemd is allowed to execute. restorecon fixes that. This
+# is a no-op -- and safely skipped -- on distros without SELinux.
+if command -v restorecon >/dev/null 2>&1; then
+    sudo restorecon -v /opt/seclog-shipper/shipper
+fi
+
 # Read from the actual terminal, not stdin -- stdin here is the pipe
 # from `curl | bash`, which is already closed/empty by this point.
 read -p "Enter enrollment token: " TOKEN < /dev/tty

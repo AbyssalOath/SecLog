@@ -130,6 +130,22 @@ present before deploying the installer.
 > unified log and the Windows Security event log; no manual path
 > configuration is needed for those sources.
 
+> **SELinux (Fedora/RHEL/Rocky/AlmaLinux):** the install script relabels
+> the shipper binary automatically, but if the service still fails to
+> start with a `203/EXEC` status in `systemctl status seclog-shipper`,
+> check `ls -Z /opt/seclog-shipper/shipper` for a context like
+> `user_tmp_t`. Fix it with:
+> ```bash
+> sudo restorecon -v /opt/seclog-shipper/shipper
+> ```
+> If that doesn't resolve it, pin the context explicitly:
+> ```bash
+> sudo semanage fcontext -a -t bin_t "/opt/seclog-shipper/shipper"
+> sudo restorecon -v /opt/seclog-shipper/shipper
+> ```
+> (`semanage` is in the `policycoreutils-python-utils` package if it's
+> not already installed.)
+
 ### Recommended Linux log paths
 
 The shipper's parser looks for security-relevant events including SSH
