@@ -264,3 +264,41 @@ select {
     border-color: #fff;
     animation: pulse-red 1.6s ease-in-out infinite;
 }
+
+.host-group {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+}
+.host-row {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 0.8rem 1rem;
+    background: var(--panel);
+    cursor: pointer;
+    user-select: none;
+}
+.host-row:hover { background: rgba(255,255,255,0.03); }
+.host-row .host-name { flex: 1; font-weight: bold; }
+.host-row .host-count { color: var(--text-dim); font-size: 0.8rem; }
+.host-row .sev-pill {
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+}
+.host-row .sev-pill.has-critical { color: #fff; background: var(--blood); animation: pulse-red 1.6s ease-in-out infinite; }
+.host-row .sev-pill.has-high { color: var(--blood-bright); border-color: var(--blood-bright); }
+.host-row .caret { color: var(--text-dim); transition: transform 0.15s; }
+.host-row.expanded .caret { transform: rotate(90deg); }
+.host-detail { display: none; }
+.host-detail.expanded { display: block; }
+.host-detail table { margin-top: 0; border-top: none; border-radius: 0; }
+.host-detail-note {
+    padding: 0.5rem 1rem;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    background: var(--bg);
+}

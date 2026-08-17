@@ -1,165 +1,162 @@
 // ---------- Dashboard ----------
-let hostSummaries = [];
-let currentHost = null;
-let currentPage = 0;
-const PAGE_SIZE = 50;
-let currentPageLogs = [];
-let currentPageTotal = 0;
- 
+let allLogs = [];
+const expandedHosts = new Set();
+
+const SEVERITY_RANK = { Critical: 3, High: 2, Medium: 1, Low: 0 };
+const MAX_ROWS_PER_HOST = 25;
+
 async function initDashboard() {
     const meResp = await authFetch('/me');
     if (meResp.ok) {
         const me = await meResp.json();
         document.getElementById('whoami').innerText = `${me.username} (${me.role})`;
     }
- 
+
     const versionResp = await fetch('/version');
     const versionData = await versionResp.json();
     const badge = document.getElementById('version-badge');
     if (versionData.update_available) {
-    	badge.textContent = `v${versionData.version} -> Update available (v${versionData.latest_version})`;
-    	badge.classList.add('update-available');
+        badge.textContent = `v${versionData.version} — Update available (v${versionData.latest_version})`;
+        badge.classList.add('update-available');
     } else {
-    	badge.textContent = `v${versionData.version}`;
-    	badge.classList.remove('update-available');
+        badge.textContent = `v${versionData.version}`;
+        badge.classList.remove('update-available');
     }
- 
-    await loadHostSummary();
+
+    const response = await authFetch('/logs');
+    allLogs = await response.json();
+
+    document.getElementById('stat-total').textContent = allLogs.length;
+    document.getElementById('stat-errors').textContent = allLogs.filter(l => l.severity === 'High').length;
+    document.getElementById('stat-warns').textContent = allLogs.filter(l => l.severity === 'Critical').length;
+
+    renderLogTable();
 }
- 
-// Dashboard landing view: one row per host, counts only -- never loads
-// raw log rows here. This is what replaced the old "fetch every log row
-// and render it" approach, which could put hundreds of thousands of DOM
-// rows in the page at once and crash the tab (and, since severity counts
-// alone are cheap to compute server-side via GROUP BY, this stays fast
-// even with a very large logs table).
-async function loadHostSummary() {
-    const response = await authFetch('/logs/summary');
-    hostSummaries = await response.json();
- 
-    const total = hostSummaries.reduce((sum, h) => sum + h.total, 0);
-    const high = hostSummaries.reduce((sum, h) => sum + h.high, 0);
-    const critical = hostSummaries.reduce((sum, h) => sum + h.critical, 0);
- 
-    document.getElementById('stat-total').textContent = total;
-    document.getElementById('stat-errors').textContent = high;
-    document.getElementById('stat-warns').textContent = critical;
- 
-    renderHostTable();
-}
- 
-function renderHostTable() {
-    const filter = document.getElementById('host-filter-box').value.toLowerCase();
-    const tbody = document.getElementById('host-rows');
-    tbody.innerHTML = '';
- 
-    const filtered = hostSummaries.filter(h => h.host.toLowerCase().includes(filter));
- 
-    for (const h of filtered) {
-        const row = document.createElement('tr');
-        row.className = 'host-row';
-        row.onclick = () => showHostDetail(h.host);
- 
-        const hostCell = document.createElement('td');
-        hostCell.textContent = h.host;
-        hostCell.className = 'host-link';
- 
-        const totalCell = document.createElement('td');
-        totalCell.textContent = h.total;
- 
-        const critCell = document.createElement('td');
-        critCell.textContent = h.critical;
-        critCell.className = 'level-Critical';
- 
-        const highCell = document.createElement('td');
-        highCell.textContent = h.high;
-        highCell.className = 'level-High';
- 
-        const medCell = document.createElement('td');
-        medCell.textContent = h.medium;
-        medCell.className = 'level-Medium';
- 
-        const lowCell = document.createElement('td');
-        lowCell.textContent = h.low;
-        lowCell.className = 'level-Low';
- 
-        row.append(hostCell, totalCell, critCell, highCell, medCell, lowCell);
-        tbody.appendChild(row);
+
+function toggleHost(host) {
+    if (expandedHosts.has(host)) {
+        expandedHosts.delete(host);
+    } else {
+        expandedHosts.add(host);
     }
+    renderLogTable();
 }
- 
-function showHostSummary() {
-    currentHost = null;
-    document.getElementById('host-detail-view').style.display = 'none';
-    document.getElementById('host-summary-view').style.display = '';
+
+function makeRow(log) {
+    const row = document.createElement('tr');
+    const idCell = document.createElement('td');
+    idCell.textContent = log.id;
+    const severityCell = document.createElement('td');
+    severityCell.textContent = log.severity;
+    severityCell.className = 'level-' + log.severity;
+    const hostCell = document.createElement('td');
+    hostCell.textContent = log.host;
+    const userCell = document.createElement('td');
+    userCell.textContent = log.user;
+    const messageCell = document.createElement('td');
+    messageCell.textContent = log.message;
+
+    row.appendChild(idCell);
+    row.appendChild(severityCell);
+    row.appendChild(hostCell);
+    row.appendChild(userCell);
+    row.appendChild(messageCell);
+    return row;
 }
- 
-async function showHostDetail(host) {
-    currentHost = host;
-    currentPage = 0;
-    document.getElementById('host-summary-view').style.display = 'none';
-    document.getElementById('host-detail-view').style.display = '';
-    document.getElementById('host-detail-title').textContent = host;
-    await loadDetailPage();
-}
- 
-// One page of a single host's detections, most-severe-first, straight
-// from the server (see get_logs_for_host in db.rs) -- never more than
-// PAGE_SIZE rows in the DOM at a time no matter how large that host's
-// history is.
-async function loadDetailPage() {
-    const offset = currentPage * PAGE_SIZE;
-    const response = await authFetch(`/logs?host=${encodeURIComponent(currentHost)}&limit=${PAGE_SIZE}&offset=${offset}`);
-    const data = await response.json();
-    currentPageLogs = data.logs;
-    currentPageTotal = data.total;
-    renderDetailTable();
- 
-    const maxPage = Math.max(0, Math.ceil(currentPageTotal / PAGE_SIZE) - 1);
-    document.getElementById('detail-page-info').textContent =
-        `Page ${currentPage + 1} of ${maxPage + 1} (${currentPageTotal} total)`;
-    document.getElementById('detail-prev').disabled = currentPage <= 0;
-    document.getElementById('detail-next').disabled = currentPage >= maxPage;
-}
- 
-function changeDetailPage(delta) {
-    currentPage += delta;
-    loadDetailPage();
-}
- 
-function renderDetailTable() {
-    const filter = document.getElementById('detail-filter-box').value.toLowerCase();
-    const tbody = document.getElementById('log-rows');
-    tbody.innerHTML = '';
- 
-    const filtered = currentPageLogs.filter(log =>
+
+function renderLogTable() {
+    const filter = document.getElementById('filter-box').value.toLowerCase();
+    const container = document.getElementById('host-groups');
+    container.innerHTML = '';
+
+    const filtered = allLogs.filter(log =>
+        log.host.toLowerCase().includes(filter) ||
         log.user.toLowerCase().includes(filter) ||
         log.message.toLowerCase().includes(filter)
     );
- 
+
+    // Group by host.
+    const byHost = new Map();
     for (const log of filtered) {
-        const row = document.createElement('tr');
-        const idCell = document.createElement('td');
-        idCell.textContent = log.id;
-        const severityCell = document.createElement('td');
-        severityCell.textContent = log.severity;
-        severityCell.className = 'level-' + log.severity;
-        const userCell = document.createElement('td');
-        userCell.textContent = log.user;
- 
-        // Message is truncated visually (see .message-cell CSS) so one
-        // long line can't stretch the table off-screen -- full text is
-        // still available via the native title tooltip on hover.
-        const messageCell = document.createElement('td');
-        messageCell.textContent = log.message;
-        messageCell.className = 'message-cell';
-        messageCell.title = log.message;
- 
-        row.appendChild(idCell);
-        row.appendChild(severityCell);
-        row.appendChild(userCell);
-        row.appendChild(messageCell);
-        tbody.appendChild(row);
+        if (!byHost.has(log.host)) byHost.set(log.host, []);
+        byHost.get(log.host).push(log);
+    }
+
+    // Sort hosts by worst severity present, then by count, descending --
+    // the hosts that most need attention float to the top.
+    const hosts = [...byHost.keys()].sort((a, b) => {
+        const logsA = byHost.get(a), logsB = byHost.get(b);
+        const worstA = Math.max(...logsA.map(l => SEVERITY_RANK[l.severity] ?? 0));
+        const worstB = Math.max(...logsB.map(l => SEVERITY_RANK[l.severity] ?? 0));
+        if (worstB !== worstA) return worstB - worstA;
+        return logsB.length - logsA.length;
+    });
+
+    for (const host of hosts) {
+        const logs = byHost.get(host);
+        const counts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+        for (const l of logs) counts[l.severity] = (counts[l.severity] || 0) + 1;
+
+        const group = document.createElement('div');
+        group.className = 'host-group';
+
+        const headerRow = document.createElement('div');
+        headerRow.className = 'host-row' + (expandedHosts.has(host) ? ' expanded' : '');
+        headerRow.onclick = () => toggleHost(host);
+
+        const caret = document.createElement('span');
+        caret.className = 'caret';
+        caret.textContent = '▶';
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'host-name';
+        nameEl.textContent = host;
+
+        const countEl = document.createElement('div');
+        countEl.className = 'host-count';
+        countEl.textContent = `${logs.length} detection${logs.length === 1 ? '' : 's'}`;
+
+        headerRow.appendChild(caret);
+        headerRow.appendChild(nameEl);
+        headerRow.appendChild(countEl);
+
+        for (const sev of ['Critical', 'High', 'Medium', 'Low']) {
+            if (counts[sev] > 0) {
+                const pill = document.createElement('span');
+                pill.className = 'sev-pill' + (sev === 'Critical' ? ' has-critical' : sev === 'High' ? ' has-high' : '');
+                pill.textContent = `${sev}: ${counts[sev]}`;
+                headerRow.appendChild(pill);
+            }
+        }
+
+        group.appendChild(headerRow);
+
+        const detail = document.createElement('div');
+        detail.className = 'host-detail' + (expandedHosts.has(host) ? ' expanded' : '');
+
+        // Worst-severity-first, capped -- not an infinite scroll of every
+        // event this host has ever produced.
+        const sorted = [...logs].sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0));
+        const shown = sorted.slice(0, MAX_ROWS_PER_HOST);
+
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        thead.innerHTML = '<tr><th>ID</th><th>Severity</th><th>Host</th><th>User</th><th>Message</th></tr>';
+        table.appendChild(thead);
+        const tbody = document.createElement('tbody');
+        for (const log of shown) tbody.appendChild(makeRow(log));
+        table.appendChild(tbody);
+        detail.appendChild(table);
+
+        if (sorted.length > MAX_ROWS_PER_HOST) {
+            const note = document.createElement('div');
+            note.className = 'host-detail-note';
+            note.textContent = `Showing top ${MAX_ROWS_PER_HOST} of ${sorted.length} by severity. Narrow the filter above to see more.`;
+            detail.appendChild(note);
+        }
+
+        group.appendChild(detail);
+        container.appendChild(group);
     }
 }
  
