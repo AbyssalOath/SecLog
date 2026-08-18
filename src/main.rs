@@ -16,6 +16,8 @@ use seclog::{
 use std::{env, sync::Arc};
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
+use axum::http::header::CACHE_CONTROL;
  
 // include_str! embeds the file's contents into the binary at COMPILE
 // time -- the running server always knows exactly what version it is,
@@ -35,14 +37,24 @@ struct GithubRelease {
 }
  
 async fn check_latest_version() -> Option<String> {
-    let client = reqwest::Client::new();
+    // Explicit timeout is the whole point here -- reqwest's default
+    // client waits indefinitely (falling back to the OS's own TCP
+    // timeout, which can be minutes). Without this, a slow/unreachable
+    // GitHub call can stall this request far longer than the version
+    // check is worth -- and since the frontend awaits /version before
+    // /logs, that stall was blocking the dashboard's detections too.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .ok()?;
+
     let resp = client
         .get("https://api.github.com/repos/LordSodomiser/SecLog/releases/latest")
         .header("User-Agent", "seclog") // GitHub's API requires a User-Agent header
         .send()
         .await
         .ok()?;
- 
+
     let release: GithubRelease = resp.json().await.ok()?;
     Some(release.tag_name.trim_start_matches('v').to_string())
 }
@@ -1131,7 +1143,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/install/windows.ps1", get(windows_install_script))
         .fallback_service(ServeDir::new("static"))
         .with_state(state)
-        .layer(cors);
+        .layer(cors)
+        .layer(SetResponseHeaderLayer::if_not_present(
+            CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache"),
+        ));
  
     // Bind to all network interfaces on port 3000.
     // This call runs "forever" -- it's the event loop that waits for
