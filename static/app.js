@@ -1,9 +1,11 @@
 // ---------- Dashboard ----------
 let allLogs = [];
-const expandedHosts = new Set();
-
 const SEVERITY_RANK = { Critical: 3, High: 2, Medium: 1, Low: 0 };
-const MAX_ROWS_PER_HOST = 25;
+const DETAIL_PAGE_SIZE = 25;
+
+let currentHost = null;
+let detailPage = 0;
+let expandedMessageCell = null;
 
 async function initDashboard() {
     const meResp = await authFetch('/me');
@@ -30,19 +32,90 @@ async function initDashboard() {
     document.getElementById('stat-errors').textContent = allLogs.filter(l => l.severity === 'High').length;
     document.getElementById('stat-warns').textContent = allLogs.filter(l => l.severity === 'Critical').length;
 
-    renderLogTable();
+    showHostSummary();
 }
 
-function toggleHost(host) {
-    if (expandedHosts.has(host)) {
-        expandedHosts.delete(host);
-    } else {
-        expandedHosts.add(host);
+// ---- Host summary table (the default landing view) ----
+function renderHostTable() {
+    const filter = document.getElementById('host-filter-box').value.toLowerCase();
+    const tbody = document.getElementById('host-rows');
+    tbody.innerHTML = '';
+
+    const byHost = new Map();
+    for (const log of allLogs) {
+        if (!byHost.has(log.host)) byHost.set(log.host, []);
+        byHost.get(log.host).push(log);
     }
-    renderLogTable();
+
+    const hosts = [...byHost.keys()]
+        .filter(h => h.toLowerCase().includes(filter))
+        .sort((a, b) => {
+            const worstA = Math.max(...byHost.get(a).map(l => SEVERITY_RANK[l.severity] ?? 0));
+            const worstB = Math.max(...byHost.get(b).map(l => SEVERITY_RANK[l.severity] ?? 0));
+            if (worstB !== worstA) return worstB - worstA;
+            return byHost.get(b).length - byHost.get(a).length;
+        });
+
+    for (const host of hosts) {
+        const logs = byHost.get(host);
+        const counts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+        for (const l of logs) counts[l.severity] = (counts[l.severity] || 0) + 1;
+
+        const row = document.createElement('tr');
+        row.className = 'host-row';
+        row.onclick = () => showHostDetail(host);
+
+        const hostCell = document.createElement('td');
+        const link = document.createElement('a');
+        link.href = '#';
+        link.className = 'host-link';
+        link.textContent = host;
+        link.onclick = (e) => { e.preventDefault(); showHostDetail(host); };
+        hostCell.appendChild(link);
+
+        const totalCell = document.createElement('td');
+        totalCell.textContent = logs.length;
+        const criticalCell = document.createElement('td');
+        criticalCell.textContent = counts.Critical;
+        const highCell = document.createElement('td');
+        highCell.textContent = counts.High;
+        const mediumCell = document.createElement('td');
+        mediumCell.textContent = counts.Medium;
+        const lowCell = document.createElement('td');
+        lowCell.textContent = counts.Low;
+
+        row.appendChild(hostCell);
+        row.appendChild(totalCell);
+        row.appendChild(criticalCell);
+        row.appendChild(highCell);
+        row.appendChild(mediumCell);
+        row.appendChild(lowCell);
+        tbody.appendChild(row);
+    }
 }
 
-let expandedMessageCell = null;
+function showHostSummary() {
+    currentHost = null;
+    document.getElementById('host-summary-view').style.display = 'block';
+    document.getElementById('host-detail-view').style.display = 'none';
+    renderHostTable();
+}
+
+// ---- Per-host drill-down (paginated, filterable) ----
+function showHostDetail(host) {
+    currentHost = host;
+    detailPage = 0;
+    document.getElementById('host-summary-view').style.display = 'none';
+    document.getElementById('host-detail-view').style.display = 'block';
+    document.getElementById('host-detail-title').textContent = host;
+    document.getElementById('detail-filter-box').value = '';
+    renderDetailTable();
+}
+
+function changeDetailPage(delta) {
+    detailPage += delta;
+    renderDetailTable();
+}
 
 function makeRow(log) {
     const row = document.createElement('tr');
@@ -51,8 +124,6 @@ function makeRow(log) {
     const severityCell = document.createElement('td');
     severityCell.textContent = log.severity;
     severityCell.className = 'level-' + log.severity;
-    const hostCell = document.createElement('td');
-    hostCell.textContent = log.host;
     const userCell = document.createElement('td');
     userCell.textContent = log.user;
 
@@ -60,122 +131,51 @@ function makeRow(log) {
     messageCell.textContent = log.message;
     messageCell.className = 'message-cell';
     messageCell.onclick = () => {
-        // Clicking the currently-open cell again just closes it.
         if (expandedMessageCell === messageCell) {
             messageCell.classList.remove('expanded');
             expandedMessageCell = null;
             return;
         }
-        // Otherwise close whatever was previously open, then open this one.
-        if (expandedMessageCell) {
-            expandedMessageCell.classList.remove('expanded');
-        }
+        if (expandedMessageCell) expandedMessageCell.classList.remove('expanded');
         messageCell.classList.add('expanded');
         expandedMessageCell = messageCell;
     };
 
     row.appendChild(idCell);
     row.appendChild(severityCell);
-    row.appendChild(hostCell);
     row.appendChild(userCell);
     row.appendChild(messageCell);
     return row;
 }
 
-function renderLogTable() {
-    const filter = document.getElementById('filter-box').value.toLowerCase();
-    const container = document.getElementById('host-groups');
-    container.innerHTML = '';
+function renderDetailTable() {
+    if (!currentHost) return;
 
-    const filtered = allLogs.filter(log =>
-        log.host.toLowerCase().includes(filter) ||
-        log.user.toLowerCase().includes(filter) ||
-        log.message.toLowerCase().includes(filter)
+    const filter = document.getElementById('detail-filter-box').value.toLowerCase();
+    const logs = allLogs.filter(l => l.host === currentHost);
+    const filtered = logs.filter(l =>
+        l.user.toLowerCase().includes(filter) || l.message.toLowerCase().includes(filter)
     );
 
-    // Group by host.
-    const byHost = new Map();
-    for (const log of filtered) {
-        if (!byHost.has(log.host)) byHost.set(log.host, []);
-        byHost.get(log.host).push(log);
-    }
+    // Worst severity first.
+    filtered.sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0));
 
-    // Sort hosts by worst severity present, then by count, descending --
-    // the hosts that most need attention float to the top.
-    const hosts = [...byHost.keys()].sort((a, b) => {
-        const logsA = byHost.get(a), logsB = byHost.get(b);
-        const worstA = Math.max(...logsA.map(l => SEVERITY_RANK[l.severity] ?? 0));
-        const worstB = Math.max(...logsB.map(l => SEVERITY_RANK[l.severity] ?? 0));
-        if (worstB !== worstA) return worstB - worstA;
-        return logsB.length - logsA.length;
-    });
+    const totalPages = Math.max(1, Math.ceil(filtered.length / DETAIL_PAGE_SIZE));
+    if (detailPage < 0) detailPage = 0;
+    if (detailPage >= totalPages) detailPage = totalPages - 1;
 
-    for (const host of hosts) {
-        const logs = byHost.get(host);
-        const counts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
-        for (const l of logs) counts[l.severity] = (counts[l.severity] || 0) + 1;
+    const start = detailPage * DETAIL_PAGE_SIZE;
+    const pageItems = filtered.slice(start, start + DETAIL_PAGE_SIZE);
 
-        const group = document.createElement('div');
-        group.className = 'host-group';
+    const tbody = document.getElementById('log-rows');
+    tbody.innerHTML = '';
+    expandedMessageCell = null;
+    for (const log of pageItems) tbody.appendChild(makeRow(log));
 
-        const headerRow = document.createElement('div');
-        headerRow.className = 'host-row' + (expandedHosts.has(host) ? ' expanded' : '');
-        headerRow.onclick = () => toggleHost(host);
-
-        const caret = document.createElement('span');
-        caret.className = 'caret';
-        caret.textContent = '▶';
-
-        const nameEl = document.createElement('div');
-        nameEl.className = 'host-name';
-        nameEl.textContent = host;
-
-        const countEl = document.createElement('div');
-        countEl.className = 'host-count';
-        countEl.textContent = `${logs.length} detection${logs.length === 1 ? '' : 's'}`;
-
-        headerRow.appendChild(caret);
-        headerRow.appendChild(nameEl);
-        headerRow.appendChild(countEl);
-
-        for (const sev of ['Critical', 'High', 'Medium', 'Low']) {
-            if (counts[sev] > 0) {
-                const pill = document.createElement('span');
-                pill.className = 'sev-pill' + (sev === 'Critical' ? ' has-critical' : sev === 'High' ? ' has-high' : '');
-                pill.textContent = `${sev}: ${counts[sev]}`;
-                headerRow.appendChild(pill);
-            }
-        }
-
-        group.appendChild(headerRow);
-
-        const detail = document.createElement('div');
-        detail.className = 'host-detail' + (expandedHosts.has(host) ? ' expanded' : '');
-
-        // Worst-severity-first, capped -- not an infinite scroll of every
-        // event this host has ever produced.
-        const sorted = [...logs].sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0));
-        const shown = sorted.slice(0, MAX_ROWS_PER_HOST);
-
-        const table = document.createElement('table');
-        const thead = document.createElement('thead');
-        thead.innerHTML = '<tr><th>ID</th><th>Severity</th><th>Host</th><th>User</th><th>Message</th></tr>';
-        table.appendChild(thead);
-        const tbody = document.createElement('tbody');
-        for (const log of shown) tbody.appendChild(makeRow(log));
-        table.appendChild(tbody);
-        detail.appendChild(table);
-
-        if (sorted.length > MAX_ROWS_PER_HOST) {
-            const note = document.createElement('div');
-            note.className = 'host-detail-note';
-            note.textContent = `Showing top ${MAX_ROWS_PER_HOST} of ${sorted.length} by severity. Narrow the filter above to see more.`;
-            detail.appendChild(note);
-        }
-
-        group.appendChild(detail);
-        container.appendChild(group);
-    }
+    document.getElementById('detail-page-info').textContent =
+        `Page ${detailPage + 1} of ${totalPages} (${filtered.length} total)`;
+    document.getElementById('detail-prev').disabled = detailPage === 0;
+    document.getElementById('detail-next').disabled = detailPage >= totalPages - 1;
 }
  
 // ---------- Users ----------
