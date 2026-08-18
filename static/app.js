@@ -42,6 +42,8 @@ function toggleHost(host) {
     renderLogTable();
 }
 
+let expandedMessageCell = null;
+
 function makeRow(log) {
     const row = document.createElement('tr');
     const idCell = document.createElement('td');
@@ -53,8 +55,24 @@ function makeRow(log) {
     hostCell.textContent = log.host;
     const userCell = document.createElement('td');
     userCell.textContent = log.user;
+
     const messageCell = document.createElement('td');
     messageCell.textContent = log.message;
+    messageCell.className = 'message-cell';
+    messageCell.onclick = () => {
+        // Clicking the currently-open cell again just closes it.
+        if (expandedMessageCell === messageCell) {
+            messageCell.classList.remove('expanded');
+            expandedMessageCell = null;
+            return;
+        }
+        // Otherwise close whatever was previously open, then open this one.
+        if (expandedMessageCell) {
+            expandedMessageCell.classList.remove('expanded');
+        }
+        messageCell.classList.add('expanded');
+        expandedMessageCell = messageCell;
+    };
 
     row.appendChild(idCell);
     row.appendChild(severityCell);

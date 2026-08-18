@@ -161,12 +161,19 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .log-detail-table th:nth-child(2), .log-detail-table td:nth-child(2) { width: 6rem; }
 .log-detail-table th:nth-child(3), .log-detail-table td:nth-child(3) { width: 8rem; }
 .message-cell {
+    max-width: 500px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     cursor: help;
 }
- 
+.message-cell.expanded {
+    max-width: none;
+    white-space: normal;
+    word-break: break-word;
+    background: rgba(212,52,44,0.06);
+}
+
 .pagination-row {
     display: flex;
     align-items: center;
