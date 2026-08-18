@@ -47,11 +47,22 @@ async fn check_latest_version() -> Option<String> {
     Some(release.tag_name.trim_start_matches('v').to_string())
 }
  
+fn parse_version(v: &str) -> Vec<u32> {
+    v.split('.').filter_map(|p| p.parse().ok()).collect()
+}
+
+fn is_newer(latest: &str, current: &str) -> bool {
+    parse_version(latest) > parse_version(current)
+}
+
 async fn version() -> Json<VersionResponse> {
     let current = VERSION.trim().to_string();
     let latest = check_latest_version().await;
-    let update_available = latest.as_deref().map(|l| l != current).unwrap_or(false);
- 
+    let update_available = latest
+        .as_deref()
+        .map(|l| is_newer(l, &current))
+        .unwrap_or(false);
+
     Json(VersionResponse {
         version: current,
         latest_version: latest,

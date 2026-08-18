@@ -25,6 +25,15 @@ jobs:
         id: version
         run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
+      - name: Determine floating tag
+        id: floating
+        run: |
+          if [ "${{ github.ref_name }}" = "dev" ] && [ "${{ github.ref_type }}" = "branch" ]; then
+            echo "tag=dev" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -32,4 +41,4 @@ jobs:
           push: true
           tags: |
             ghcr.io/lordsodomiser/seclog:${{ steps.version.outputs.version }}
-            ${{ github.ref == 'refs/heads/main' && 'ghcr.io/lordsodomiser/seclog:latest' || 'ghcr.io/lordsodomiser/seclog:dev' }}
+            ghcr.io/lordsodomiser/seclog:${{ steps.floating.outputs.tag }}

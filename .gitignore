@@ -18,3 +18,6 @@ Caddyfile
  
 # Logs
 *.log
+
+# Dev
+docker-compose.dev.yml
