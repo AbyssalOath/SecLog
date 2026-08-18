@@ -2,7 +2,7 @@ name: Publish Docker Image
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     tags: ['v*']
 
 jobs:
@@ -31,5 +31,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/lordsodomiser/seclog:latest
             ghcr.io/lordsodomiser/seclog:${{ steps.version.outputs.version }}
+            ${{ github.ref == 'refs/heads/main' && 'ghcr.io/lordsodomiser/seclog:latest' || 'ghcr.io/lordsodomiser/seclog:dev' }}
