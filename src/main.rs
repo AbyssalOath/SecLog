@@ -14,7 +14,7 @@ use seclog::{
     parser,
 };
 use std::{env, sync::Arc};
-use tower_http::cors::{CorsLayer, Any};
+use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
  
 // include_str! embeds the file's contents into the binary at COMPILE
@@ -95,6 +95,7 @@ fn base_url_from_headers(headers: &HeaderMap) -> String {
 struct AppState {
     pool: db::DbPool,
     rate_limiter: Arc<LoginRateLimiter>,
+    register_rate_limiter: Arc<LoginRateLimiter>,
 }
  
 async fn create_log(
@@ -444,12 +445,13 @@ struct ChangePasswordRequest {
 async fn change_password(
     State(state): State<AppState>,
     auth_user: AuthUser,
+    jar: CookieJar,
     Json(payload): Json<ChangePasswordRequest>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<(CookieJar, StatusCode), StatusCode> {
     if payload.new_password.len() < 15 {
         return Err(StatusCode::BAD_REQUEST);
     }
- 
+
     let stored_hash = match db::get_password_hash(&state.pool, &auth_user.username).await {
         Ok(Some(h)) => h,
         Ok(None) => return Err(StatusCode::UNAUTHORIZED),
@@ -458,21 +460,43 @@ async fn change_password(
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
- 
+
     if !auth::verify_password(&payload.current_password, &stored_hash) {
         return Err(StatusCode::UNAUTHORIZED);
     }
- 
+
     let new_hash = auth::hash_password(&payload.new_password)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
- 
-    match db::update_password(&state.pool, auth_user.user_id, &new_hash).await {
-        Ok(_) => Ok(StatusCode::OK),
-        Err(e) => {
+
+    if let Err(e) = db::update_password(&state.pool, auth_user.user_id, &new_hash).await {
+        eprintln!("DB error: {}", e);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    // Rotate the session: the old token stays valid until this point, so
+    // password compromise + change wouldn't actually kick out an attacker
+    // holding the old cookie unless we explicitly invalidate it here.
+    if let Some(old_cookie) = jar.get("__Host-seclog_session") {
+        if let Err(e) = db::delete_session(&state.pool, old_cookie.value()).await {
             eprintln!("DB error: {}", e);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     }
+
+    let new_token = auth::generate_session_token();
+    if let Err(e) = db::create_session(&state.pool, &new_token, auth_user.user_id).await {
+        eprintln!("DB error: {}", e);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    let new_cookie = Cookie::build(("__Host-seclog_session", new_token))
+        .path("/")
+        .http_only(true)
+        .secure(true)
+        .same_site(SameSite::Strict)
+        .build();
+
+    Ok((jar.add(new_cookie), StatusCode::OK))
 }
  
 async fn admin_delete_user(
@@ -841,20 +865,34 @@ async fn generate_enrollment_token(
 // admin-issued, and consumed atomically on first successful use.
 async fn self_register_agent(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<models::SelfRegisterRequest>,
 ) -> Result<Json<models::RegisterAgentResponse>, StatusCode> {
+    let ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+        .unwrap_or("unknown")
+        .to_string();
+
+    if !state.register_rate_limiter.check(&ip) {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+
     if payload.hostname.trim().is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
- 
+
     let valid = db::consume_enrollment_token(&state.pool, &payload.enrollment_token)
         .await
         .map_err(|e| { eprintln!("DB error: {}", e); StatusCode::INTERNAL_SERVER_ERROR })?;
- 
+
     if !valid {
+        state.register_rate_limiter.record_failure(&ip);
         return Err(StatusCode::UNAUTHORIZED);
     }
- 
+
     let api_key = auth::generate_session_token();
     match db::create_agent(&state.pool, &payload.hostname, &api_key).await {
         Ok(agent_id) => Ok(Json(models::RegisterAgentResponse { agent_id, api_key })),
@@ -992,10 +1030,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // to make requests from. Any::any() is permissive -- fine for local dev,
     // but something to tighten later (restrict to your actual UI's origin)
     // once this isn't just running on localhost.
+    let frontend_origin = env::var("FRONTEND_ORIGIN")
+        .expect("FRONTEND_ORIGIN must be set (e.g. https://seclog.yourdomain.com)")
+        .parse::<axum::http::HeaderValue>()
+        .expect("FRONTEND_ORIGIN is not a valid origin");
+
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin(frontend_origin)
+        .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::DELETE])
+        .allow_headers([axum::http::header::CONTENT_TYPE])
+        .allow_credentials(true);
     println!("Connected to MariaDB successfully!");
  
     db::init_schema(&pool).await?;
@@ -1009,6 +1053,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         pool,
         rate_limiter: Arc::new(LoginRateLimiter::new()),
+        register_rate_limiter: Arc::new(LoginRateLimiter::new()),
     };
  
     // tokio::spawn starts a task that runs concurrently, independent of the
@@ -1089,12 +1134,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(cors);
  
     // Bind to all network interfaces on port 3000.
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    println!("Server running on http://0.0.0.0:3000");
- 
     // This call runs "forever" -- it's the event loop that waits for
     // and dispatches incoming HTTP requests. Unlike your SLI's main(),
     // this doesn't return until the server is shut down.
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    println!("Server running on http://0.0.0.0:3000");
     axum::serve(listener, app).await?;
  
     Ok(())

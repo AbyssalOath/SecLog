@@ -152,9 +152,11 @@ function renderDetailTable() {
     if (!currentHost) return;
 
     const filter = document.getElementById('detail-filter-box').value.toLowerCase();
+    const severityFilter = document.getElementById('detail-severity-filter').value;
     const logs = allLogs.filter(l => l.host === currentHost);
     const filtered = logs.filter(l =>
-        l.user.toLowerCase().includes(filter) || l.message.toLowerCase().includes(filter)
+    	(l.user.toLowerCase().includes(filter) || l.message.toLowerCase().includes(filter)) &&
+    	(severityFilter === '' || l.severity === severityFilter)
     );
 
     // Worst severity first.
