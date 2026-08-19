@@ -27,6 +27,31 @@ pub struct LogRow {
     pub host: String,
 }
 
+#[derive(Debug, sqlx::FromRow, Serialize)]
+pub struct HostSummaryRow {
+    pub host: String,
+    pub total: i64,
+    pub critical: i64,
+    pub high: i64,
+    pub medium: i64,
+    pub low: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LogsQuery {
+    pub host: String,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaginatedLogs {
+    pub logs: Vec<LogRow>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}
+
 // What the CLIENT sends us as JSON. severity travels as a plain String
 // ("Low"/"Medium"/"High"/"Critical") -- the Severity enum above is only
 // used internally during file-based parsing, not over HTTP.

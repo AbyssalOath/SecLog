@@ -23,6 +23,23 @@
         </div>
     </div>
 
+        <div class="panel">
+            <h2>Log Retention</h2>
+            <div class="panel-desc">Automatic cleanup runs every 15 minutes. Rows are dropped once they exceed either limit below, whichever comes first -- the row cap is your backstop against a noisy or misbehaving source filling up storage faster than the day-based window would clear it.</div>
+            <div class="inline-form">
+                <label>Delete logs older than
+                    <input type="number" id="retention-days" min="1" style="width:5rem;"> days
+                </label>
+            </div>
+            <div class="inline-form">
+                <label>Keep at most
+                    <input type="number" id="retention-max-rows" min="1000" step="1000" style="width:8rem;"> rows total
+                </label>
+            </div>
+            <button onclick="saveRetentionSettings()">Save Retention Settings</button>
+        </div>
+    </div>
+
     <div id="tab-security" style="display:none;">
         <div class="panel">
             <h2>Multi-Factor Authentication</h2>

@@ -1,12 +1,12 @@
 use axum::{
-    extract::{FromRequestParts, State, Path},
+    extract::{FromRequestParts, State, Path, Query},
     routing::{get, post},
     http::{request::Parts, StatusCode, HeaderMap},
     Json,
     Router,
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use models::{LogRow, NewLogEntry, SignupRequest, LoginRequest, MfaCodeRequest, MfaDisableRequest, MfaLoginVerifyRequest};
+use models::{NewLogEntry, SignupRequest, LoginRequest, MfaCodeRequest, MfaDisableRequest, MfaLoginVerifyRequest};
 use seclog::{
     auth::{self, LoginRateLimiter},
     db,
@@ -14,8 +14,10 @@ use seclog::{
     parser,
 };
 use std::{env, sync::Arc};
-use tower_http::cors::{CorsLayer, Any};
+use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
+use axum::http::header::CACHE_CONTROL;
 
 // include_str! embeds the file's contents into the binary at COMPILE
 // time -- the running server always knows exactly what version it is,
@@ -35,7 +37,17 @@ struct GithubRelease {
 }
 
 async fn check_latest_version() -> Option<String> {
-    let client = reqwest::Client::new();
+    // Explicit timeout is the whole point here -- reqwest's default
+    // client waits indefinitely (falling back to the OS's own TCP
+    // timeout, which can be minutes). Without this, a slow/unreachable
+    // GitHub call can stall this request far longer than the version
+    // check is worth -- and since the frontend awaits /version before
+    // /logs, that stall was blocking the dashboard's detections too.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .ok()?;
+
     let resp = client
         .get("https://api.github.com/repos/LordSodomiser/SecLog/releases/latest")
         .header("User-Agent", "seclog") // GitHub's API requires a User-Agent header
@@ -47,10 +59,21 @@ async fn check_latest_version() -> Option<String> {
     Some(release.tag_name.trim_start_matches('v').to_string())
 }
 
+fn parse_version(v: &str) -> Vec<u32> {
+    v.split('.').filter_map(|p| p.parse().ok()).collect()
+}
+
+fn is_newer(latest: &str, current: &str) -> bool {
+    parse_version(latest) > parse_version(current)
+}
+
 async fn version() -> Json<VersionResponse> {
     let current = VERSION.trim().to_string();
     let latest = check_latest_version().await;
-    let update_available = latest.as_deref().map(|l| l != current).unwrap_or(false);
+    let update_available = latest
+        .as_deref()
+        .map(|l| is_newer(l, &current))
+        .unwrap_or(false);
 
     Json(VersionResponse {
         version: current,
@@ -84,6 +107,8 @@ fn base_url_from_headers(headers: &HeaderMap) -> String {
 struct AppState {
     pool: db::DbPool,
     rate_limiter: Arc<LoginRateLimiter>,
+    register_rate_limiter: Arc<LoginRateLimiter>,
+    mfa_rate_limiter: Arc<LoginRateLimiter>,
 }
 
 async fn create_log(
@@ -112,21 +137,54 @@ async fn create_log(
 // This is a handler function. Its signature is what tells axum how to call
 // it: State(state) pulls our AppState out automatically. The return type,
 // Json<Vec<LogRow>>, tells axum "serialize this to JSON and send it back."
+//
+// Deliberately per-host and paginated, not "give me everything" -- that
+// was the original design, and it's what let a bug (or a genuinely noisy
+// host) push 600k+ rows straight into the browser's DOM and crash the tab
+// (and the whole machine, since the browser and the Docker host were the
+// same box). limit is clamped so a hand-crafted request can't ask for an
+// unbounded page either.
 async fn list_logs(
     State(state): State<AppState>,
     auth_user: AuthUser,
-) -> Result<Json<Vec<LogRow>>, StatusCode> {
-    println!("Logs requested by: {} (role: {})", auth_user.username, auth_user.role);
+    Query(params): Query<models::LogsQuery>,
+) -> Result<Json<models::PaginatedLogs>, StatusCode> {
+    println!("Logs requested by: {} (role: {}), host={}", auth_user.username, auth_user.role, params.host);
 
-    match db::get_all_logs(&state.pool).await {
+    let limit = params.limit.unwrap_or(50).clamp(1, 500);
+    let offset = params.offset.unwrap_or(0).max(0);
+
+    let logs = match db::get_logs_for_host(&state.pool, &params.host, limit, offset).await {
+        Ok(rows) => rows,
+        Err(e) => {
+            eprintln!("DB error: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    let total = match db::count_logs_for_host(&state.pool, &params.host).await {
+        Ok(n) => n,
+        Err(e) => {
+            eprintln!("DB error: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    Ok(Json(models::PaginatedLogs { logs, total, limit, offset }))
+}
+
+// Backs the dashboard's default view: one row per host with a severity
+// breakdown, instead of a raw log firehose. Cheap regardless of table
+// size since it never touches message text, just GROUP BY + COUNT.
+async fn logs_summary(
+    State(state): State<AppState>,
+    _auth_user: AuthUser,
+) -> Result<Json<Vec<models::HostSummaryRow>>, StatusCode> {
+    match db::get_host_summary(&state.pool).await {
         Ok(rows) => Ok(Json(rows)),
         Err(e) => {
             eprintln!("DB error: {}", e);
-            // 500 = "Internal Server Error" -- we don't leak the raw DB
-            // error to the client, just log it server-side and return
-            // a generic status code. Leaking internal errors to clients
-            // is itself a minor security smell worth avoiding from the start.
-            Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
@@ -135,8 +193,14 @@ async fn signup(
     State(state): State<AppState>,
     Json(payload): Json<SignupRequest>,
 ) -> Result<StatusCode, StatusCode> {
+    let username = payload.username.trim().to_lowercase();
+
     if payload.username.trim().is_empty() || payload.password.len() < 15{
         return Err(StatusCode::BAD_REQUEST); // 400: malformed/insufficient input
+    }
+
+    if !state.register_rate_limiter.check(&username) {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
     let self_signup_enabled = db::get_self_signup_enabled(&state.pool)
@@ -159,11 +223,21 @@ async fn signup(
     let hash = auth::hash_password(&payload.password)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    match db::create_user(&state.pool, &payload.username, &hash).await {
-        Ok(Some(_user_id)) => Ok(StatusCode::CREATED),
-        Ok(None) => Err(StatusCode::CONFLICT), // 409:: username already taken
+
+    match db::create_user(&state.pool, &username, &hash).await {
+        Ok(Some(_user_id)) => {
+            state.register_rate_limiter.record_success(&username);
+            Ok(StatusCode::CREATED)
+        }
+
+        Ok(None) => {
+            state.register_rate_limiter.record_failure(&username);
+            Err(StatusCode::CONFLICT)
+        }
+
         Err(e) => {
             eprintln!("DB error: {}", e);
+            state.register_rate_limiter.record_failure(&username);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -303,10 +377,6 @@ async fn mfa_login_verify(
     State(state): State<AppState>,
     Json(payload): Json<MfaLoginVerifyRequest>,
 ) -> Result<(CookieJar, Json<models::LoginResponse>), StatusCode> {
-    if !state.rate_limiter.check(&payload.pending_token) {
-        return Err(StatusCode::TOO_MANY_REQUESTS);
-    }
-
     let (user_id, username, must_change_password) =
         match db::get_mfa_pending(&state.pool, &payload.pending_token).await {
             Ok(Some(row)) => row,
@@ -316,6 +386,15 @@ async fn mfa_login_verify(
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
         };
+
+    // MFA attempts are rate-limited by the stable user_id, not
+    // by the pending token. This means minting a new pending token
+    // does not reset the MFA attempt bucket.
+    let mfa_key = user_id.to_string();
+
+    if !state.mfa_rate_limiter.check(&mfa_key) {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
 
     let secret = match db::get_mfa_secret(&state.pool, user_id).await {
         Ok(Some(s)) => s,
@@ -327,18 +406,19 @@ async fn mfa_login_verify(
     };
 
     if !auth::verify_totp_code(&secret, &username, &payload.code) {
-        // Rate-limit by the pending token rather than username -- the
-        // token isn't consumed on a wrong code (see get_mfa_pending), so
-        // this still caps brute-force attempts against it within its
-        // 5-minute lifetime.
-        state.rate_limiter.record_failure(&payload.pending_token);
+        state.mfa_rate_limiter.record_failure(&mfa_key);
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    state.rate_limiter.record_success(&payload.pending_token);
+    state.mfa_rate_limiter.record_success(&mfa_key);
+
     db::delete_mfa_pending(&state.pool, &payload.pending_token)
         .await
-        .map_err(|e| { eprintln!("DB error: {}", e); StatusCode::INTERNAL_SERVER_ERROR })?;
+        .map_err(|e| {
+            eprintln!("DB error: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
     finish_login(&state, user_id, must_change_password).await
 }
 
@@ -477,8 +557,9 @@ struct ChangePasswordRequest {
 async fn change_password(
     State(state): State<AppState>,
     auth_user: AuthUser,
+    jar: CookieJar,
     Json(payload): Json<ChangePasswordRequest>,
-) -> Result<StatusCode, StatusCode> {
+) -> Result<(CookieJar, StatusCode), StatusCode> {
     if payload.new_password.len() < 15 {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -499,13 +580,35 @@ async fn change_password(
     let new_hash = auth::hash_password(&payload.new_password)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    match db::update_password(&state.pool, auth_user.user_id, &new_hash).await {
-        Ok(_) => Ok(StatusCode::OK),
-        Err(e) => {
+    if let Err(e) = db::update_password(&state.pool, auth_user.user_id, &new_hash).await {
+        eprintln!("DB error: {}", e);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    // Rotate the session: the old token stays valid until this point, so
+    // password compromise + change wouldn't actually kick out an attacker
+    // holding the old cookie unless we explicitly invalidate it here.
+    if let Some(old_cookie) = jar.get("__Host-seclog_session") {
+        if let Err(e) = db::delete_session(&state.pool, old_cookie.value()).await {
             eprintln!("DB error: {}", e);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     }
+
+    let new_token = auth::generate_session_token();
+    if let Err(e) = db::create_session(&state.pool, &new_token, auth_user.user_id).await {
+        eprintln!("DB error: {}", e);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    let new_cookie = Cookie::build(("__Host-seclog_session", new_token))
+        .path("/")
+        .http_only(true)
+        .secure(true)
+        .same_site(SameSite::Strict)
+        .build();
+
+    Ok((jar.add(new_cookie), StatusCode::OK))
 }
 
 async fn mfa_setup(
@@ -688,24 +791,38 @@ async fn me(auth_user: AuthUser) -> Json<MeResponse> {
 #[derive(serde::Serialize)]
 struct SettingsResponse {
     self_signup_enabled: bool,
+    log_retention_days: i64,
+    max_log_rows: i64,
 }
 
 #[derive(serde::Deserialize)]
 struct UpdateSettingsRequest {
     self_signup_enabled: bool,
+    log_retention_days: i64,
+    max_log_rows: i64,
 }
 
 async fn get_settings(
     State(state): State<AppState>,
     _admin: AdminUser,
 ) -> Result<Json<SettingsResponse>, StatusCode> {
-    match db::get_self_signup_enabled(&state.pool).await {
-        Ok(enabled) => Ok(Json(SettingsResponse { self_signup_enabled: enabled })),
+    let self_signup_enabled = match db::get_self_signup_enabled(&state.pool).await {
+        Ok(v) => v,
         Err(e) => {
             eprintln!("DB error: {}", e);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
-    }
+    };
+
+    let (log_retention_days, max_log_rows) = match db::get_retention_settings(&state.pool).await {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("DB error: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    Ok(Json(SettingsResponse { self_signup_enabled, log_retention_days, max_log_rows }))
 }
 
 async fn update_settings(
@@ -713,13 +830,25 @@ async fn update_settings(
     _admin: AdminUser,
     Json(payload): Json<UpdateSettingsRequest>,
 ) -> Result<StatusCode, StatusCode> {
-    match db::set_self_signup_enabled(&state.pool, payload.self_signup_enabled).await {
-        Ok(_) => Ok(StatusCode::OK),
-        Err(e) => {
-            eprintln!("DB error: {}", e);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
-        }
+    // Guardrails, not just cosmetic: a 0-day retention or a near-zero row
+    // cap would either silently discard everything shipped or make the
+    // dashboard useless. min values keep the box usable even if someone
+    // fat-fingers the settings form.
+    if payload.log_retention_days < 1 || payload.max_log_rows < 1000 {
+        return Err(StatusCode::BAD_REQUEST);
     }
+
+    if let Err(e) = db::set_self_signup_enabled(&state.pool, payload.self_signup_enabled).await {
+        eprintln!("DB error: {}", e);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    if let Err(e) = db::set_retention_settings(&state.pool, payload.log_retention_days, payload.max_log_rows).await {
+        eprintln!("DB error: {}", e);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    Ok(StatusCode::OK)
 }
 
 struct AgentAuth {
@@ -1059,10 +1188,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // to make requests from. Any::any() is permissive -- fine for local dev,
     // but something to tighten later (restrict to your actual UI's origin)
     // once this isn't just running on localhost.
+    let frontend_origin = env::var("FRONTEND_ORIGIN")
+        .expect("FRONTEND_ORIGIN must be set (e.g. https://seclog.yourdomain.com)")
+        .parse::<axum::http::HeaderValue>()
+        .expect("FRONTEND_ORIGIN is not a valid origin");
+
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin(frontend_origin)
+        .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::DELETE])
+        .allow_headers([axum::http::header::CONTENT_TYPE])
+        .allow_credentials(true);
     println!("Connected to MariaDB successfully!");
 
     db::init_schema(&pool).await?;
@@ -1077,6 +1212,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         pool,
         rate_limiter: Arc::new(LoginRateLimiter::new()),
+        register_rate_limiter: Arc::new(LoginRateLimiter::new()),
+        mfa_rate_limiter: Arc::new(LoginRateLimiter::new()),
     };
 
     // tokio::spawn starts a task that runs concurrently, independent of the
@@ -1099,10 +1236,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Log retention cleanup. Runs more often than the session cleanup
+    // above (every 15 min, not hourly) deliberately -- a runaway source
+    // (buggy shipper, misbehaving log, etc.) can produce hundreds of
+    // thousands of rows in well under an hour, so this needs to catch up
+    // fast rather than let a bad night turn into a bad week. Reads current
+    // settings each iteration so changes via Settings apply without a
+    // server restart.
+    let retention_pool = state.pool.clone();
+    tokio::spawn(async move {
+        loop {
+            match db::get_retention_settings(&retention_pool).await {
+                Ok((days, max_rows)) => {
+                    match db::delete_logs_older_than(&retention_pool, days).await {
+                        Ok(count) if count > 0 => println!("Retention: deleted {} log(s) older than {} days", count, days),
+                        Ok(_) => {}
+                        Err(e) => eprintln!("Retention cleanup (age) failed: {}", e),
+                    }
+                    match db::enforce_max_log_rows(&retention_pool, max_rows).await {
+                        Ok(count) if count > 0 => println!("Retention: trimmed {} oldest log(s) to stay under {} row cap", count, max_rows),
+                        Ok(_) => {}
+                        Err(e) => eprintln!("Retention cleanup (row cap) failed: {}", e),
+                    }
+                }
+                Err(e) => eprintln!("Failed to read retention settings: {}", e),
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(900)).await; // every 15 min
+        }
+    });
+
     // Router maps URL paths + HTTP methods to handler functions.
     // .with_state attaches our share AppState so every handler can use it.
     let app = Router::new()
         .route("/logs", get(list_logs).post(create_log))
+        .route("/logs/summary", get(logs_summary))
         .route("/signup", post(signup))
         .route("/signup-status", get(signup_status))
         .route("/change-password", post(change_password))
@@ -1134,15 +1301,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/install/windows.ps1", get(windows_install_script))
         .fallback_service(ServeDir::new("static"))
         .with_state(state)
-        .layer(cors);
+        .layer(cors)
+        .layer(SetResponseHeaderLayer::if_not_present(
+            CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-cache"),
+        ));
 
     // Bind to all network interfaces on port 3000.
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    println!("Server running on http://0.0.0.0:3000");
-
     // This call runs "forever" -- it's the event loop that waits for
     // and dispatches incoming HTTP requests. Unlike your SLI's main(),
     // this doesn't return until the server is shut down.
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    println!("Server running on http://0.0.0.0:3000");
     axum::serve(listener, app).await?;
 
     Ok(())

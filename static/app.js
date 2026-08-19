@@ -1,5 +1,11 @@
 // ---------- Dashboard ----------
 let allLogs = [];
+const SEVERITY_RANK = { Critical: 3, High: 2, Medium: 1, Low: 0 };
+const DETAIL_PAGE_SIZE = 25;
+
+let currentHost = null;
+let detailPage = 0;
+let expandedMessageCell = null;
 
 async function initDashboard() {
     const meResp = await authFetch('/me');
@@ -12,11 +18,11 @@ async function initDashboard() {
     const versionData = await versionResp.json();
     const badge = document.getElementById('version-badge');
     if (versionData.update_available) {
-    	badge.textContent = `v${versionData.version} -> Update available (v${versionData.latest_version})`;
-    	badge.classList.add('update-available');
+        badge.textContent = `v${versionData.version} — Update available (v${versionData.latest_version})`;
+        badge.classList.add('update-available');
     } else {
-    	badge.textContent = `v${versionData.version}`;
-    	badge.classList.remove('update-available');
+        badge.textContent = `v${versionData.version}`;
+        badge.classList.remove('update-available');
     }
 
     const response = await authFetch('/logs');
@@ -26,41 +32,152 @@ async function initDashboard() {
     document.getElementById('stat-errors').textContent = allLogs.filter(l => l.severity === 'High').length;
     document.getElementById('stat-warns').textContent = allLogs.filter(l => l.severity === 'Critical').length;
 
-    renderLogTable();
+    showHostSummary();
 }
 
-function renderLogTable() {
-    const filter = document.getElementById('filter-box').value.toLowerCase();
-    const tbody = document.getElementById('log-rows');
+// ---- Host summary table (the default landing view) ----
+function renderHostTable() {
+    const filter = document.getElementById('host-filter-box').value.toLowerCase();
+    const tbody = document.getElementById('host-rows');
     tbody.innerHTML = '';
 
-    const filtered = allLogs.filter(log =>
-        log.host.toLowerCase().includes(filter) ||
-        log.user.toLowerCase().includes(filter) ||
-        log.message.toLowerCase().includes(filter)
-    );
+    const byHost = new Map();
+    for (const log of allLogs) {
+        if (!byHost.has(log.host)) byHost.set(log.host, []);
+        byHost.get(log.host).push(log);
+    }
 
-    for (const log of filtered) {
+    const hosts = [...byHost.keys()]
+        .filter(h => h.toLowerCase().includes(filter))
+        .sort((a, b) => {
+            const worstA = Math.max(...byHost.get(a).map(l => SEVERITY_RANK[l.severity] ?? 0));
+            const worstB = Math.max(...byHost.get(b).map(l => SEVERITY_RANK[l.severity] ?? 0));
+            if (worstB !== worstA) return worstB - worstA;
+            return byHost.get(b).length - byHost.get(a).length;
+        });
+
+    for (const host of hosts) {
+        const logs = byHost.get(host);
+        const counts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+        for (const l of logs) counts[l.severity] = (counts[l.severity] || 0) + 1;
+
         const row = document.createElement('tr');
-        const idCell = document.createElement('td');
-        idCell.textContent = log.id;
-        const severityCell = document.createElement('td');
-        severityCell.textContent = log.severity;
-        severityCell.className = 'level-' + log.severity;
-        const hostCell = document.createElement('td');
-        hostCell.textContent = log.host;
-        const userCell = document.createElement('td');
-        userCell.textContent = log.user;
-        const messageCell = document.createElement('td');
-        messageCell.textContent = log.message;
+        row.className = 'host-row';
+        row.onclick = () => showHostDetail(host);
 
-        row.appendChild(idCell);
-        row.appendChild(severityCell);
+        const hostCell = document.createElement('td');
+        const link = document.createElement('a');
+        link.href = '#';
+        link.className = 'host-link';
+        link.textContent = host;
+        link.onclick = (e) => { e.preventDefault(); showHostDetail(host); };
+        hostCell.appendChild(link);
+
+        const totalCell = document.createElement('td');
+        totalCell.textContent = logs.length;
+        const criticalCell = document.createElement('td');
+        criticalCell.textContent = counts.Critical;
+        const highCell = document.createElement('td');
+        highCell.textContent = counts.High;
+        const mediumCell = document.createElement('td');
+        mediumCell.textContent = counts.Medium;
+        const lowCell = document.createElement('td');
+        lowCell.textContent = counts.Low;
+
         row.appendChild(hostCell);
-        row.appendChild(userCell);
-        row.appendChild(messageCell);
+        row.appendChild(totalCell);
+        row.appendChild(criticalCell);
+        row.appendChild(highCell);
+        row.appendChild(mediumCell);
+        row.appendChild(lowCell);
         tbody.appendChild(row);
     }
+}
+
+function showHostSummary() {
+    currentHost = null;
+    document.getElementById('host-summary-view').style.display = 'block';
+    document.getElementById('host-detail-view').style.display = 'none';
+    renderHostTable();
+}
+
+// ---- Per-host drill-down (paginated, filterable) ----
+function showHostDetail(host) {
+    currentHost = host;
+    detailPage = 0;
+    document.getElementById('host-summary-view').style.display = 'none';
+    document.getElementById('host-detail-view').style.display = 'block';
+    document.getElementById('host-detail-title').textContent = host;
+    document.getElementById('detail-filter-box').value = '';
+    renderDetailTable();
+}
+
+function changeDetailPage(delta) {
+    detailPage += delta;
+    renderDetailTable();
+}
+
+function makeRow(log) {
+    const row = document.createElement('tr');
+    const idCell = document.createElement('td');
+    idCell.textContent = log.id;
+    const severityCell = document.createElement('td');
+    severityCell.textContent = log.severity;
+    severityCell.className = 'level-' + log.severity;
+    const userCell = document.createElement('td');
+    userCell.textContent = log.user;
+
+    const messageCell = document.createElement('td');
+    messageCell.textContent = log.message;
+    messageCell.className = 'message-cell';
+    messageCell.onclick = () => {
+        if (expandedMessageCell === messageCell) {
+            messageCell.classList.remove('expanded');
+            expandedMessageCell = null;
+            return;
+        }
+        if (expandedMessageCell) expandedMessageCell.classList.remove('expanded');
+        messageCell.classList.add('expanded');
+        expandedMessageCell = messageCell;
+    };
+
+    row.appendChild(idCell);
+    row.appendChild(severityCell);
+    row.appendChild(userCell);
+    row.appendChild(messageCell);
+    return row;
+}
+
+function renderDetailTable() {
+    if (!currentHost) return;
+
+    const filter = document.getElementById('detail-filter-box').value.toLowerCase();
+    const severityFilter = document.getElementById('detail-severity-filter').value;
+    const logs = allLogs.filter(l => l.host === currentHost);
+    const filtered = logs.filter(l =>
+    	(l.user.toLowerCase().includes(filter) || l.message.toLowerCase().includes(filter)) &&
+    	(severityFilter === '' || l.severity === severityFilter)
+    );
+
+    // Worst severity first.
+    filtered.sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0));
+
+    const totalPages = Math.max(1, Math.ceil(filtered.length / DETAIL_PAGE_SIZE));
+    if (detailPage < 0) detailPage = 0;
+    if (detailPage >= totalPages) detailPage = totalPages - 1;
+
+    const start = detailPage * DETAIL_PAGE_SIZE;
+    const pageItems = filtered.slice(start, start + DETAIL_PAGE_SIZE);
+
+    const tbody = document.getElementById('log-rows');
+    tbody.innerHTML = '';
+    expandedMessageCell = null;
+    for (const log of pageItems) tbody.appendChild(makeRow(log));
+
+    document.getElementById('detail-page-info').textContent =
+        `Page ${detailPage + 1} of ${totalPages} (${filtered.length} total)`;
+    document.getElementById('detail-prev').disabled = detailPage === 0;
+    document.getElementById('detail-next').disabled = detailPage >= totalPages - 1;
 }
 
 // ---------- Users ----------
@@ -471,22 +588,47 @@ async function submitPasswordChange() {
     }
 }
 
+let currentSettings = {};
+
 async function loadGeneralSettings() {
     const response = await authFetch('/settings');
-    const settings = await response.json();
-    document.getElementById('self-signup-toggle').checked = settings.self_signup_enabled;
+    currentSettings = await response.json();
+    document.getElementById('self-signup-toggle').checked = currentSettings.self_signup_enabled;
+    document.getElementById('retention-days').value = currentSettings.log_retention_days;
+    document.getElementById('retention-max-rows').value = currentSettings.max_log_rows;
 }
 
-async function updateSelfSignup() {
-    const enabled = document.getElementById('self-signup-toggle').checked;
+async function saveSettings(overrides) {
+    const payload = { ...currentSettings, ...overrides };
 
     const response = await authFetch('/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ self_signup_enabled: enabled })
+        body: JSON.stringify(payload)
     });
 
+    if (response.ok) {
+        currentSettings = payload;
+    }
     document.getElementById('general-result').innerText = response.ok ? 'Saved.' : 'Failed to save: ' + response.status;
+    return response.ok;
+}
+
+async function updateSelfSignup() {
+    const enabled = document.getElementById('self-signup-toggle').checked;
+    await saveSettings({ self_signup_enabled: enabled });
+}
+
+async function saveRetentionSettings() {
+    const days = parseInt(document.getElementById('retention-days').value, 10);
+    const maxRows = parseInt(document.getElementById('retention-max-rows').value, 10);
+
+    if (!Number.isFinite(days) || days < 1 || !Number.isFinite(maxRows) || maxRows < 1000) {
+        document.getElementById('general-result').innerText = 'Retention days must be >= 1 and max rows >= 1000.';
+        return;
+    }
+
+    await saveSettings({ log_retention_days: days, max_log_rows: maxRows });
 }
 
 // ---------- MFA ----------

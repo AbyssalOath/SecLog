@@ -56,6 +56,20 @@ pub async fn init_schema(pool: &DbPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
+    // Same idea, for installs that predate retention support -- needed so
+    // delete_logs_older_than has something to compare against.
+    sqlx::query("ALTER TABLE logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
+        .execute(pool)
+        .await?;
+ 
+    // Index for the dashboard's host-summary GROUP BY and per-host
+    // pagination -- without this, both scale linearly with total table
+    // size instead of the size of one host's rows.
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_logs_host ON logs (host)")
+        .execute(pool)
+        .await
+        .ok(); // MariaDB lacks IF NOT EXISTS for indexes on some versions; ignore "already exists"
+ 
     Ok(())
 }
 
@@ -107,6 +121,84 @@ pub async fn get_all_logs(pool: &DbPool) -> Result<Vec<LogRow>, sqlx::Error> {
     sqlx::query_as("SELECT id, severity, user, message, host FROM logs")
         .fetch_all(pool)
         .await
+}
+
+// One row per distinct host, with a breakdown by severity. This is what
+// the dashboard's host-summary view is built from -- deliberately never
+// pulls message text, so this stays cheap even with millions of rows.
+pub async fn get_host_summary(pool: &DbPool) -> Result<Vec<crate::models::HostSummaryRow>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT host,
+                COUNT(*) AS total,
+                CAST(SUM(CASE WHEN severity = 'Critical' THEN 1 ELSE 0 END) AS SIGNED) AS critical,
+                CAST(SUM(CASE WHEN severity = 'High'     THEN 1 ELSE 0 END) AS SIGNED) AS high,
+                CAST(SUM(CASE WHEN severity = 'Medium'   THEN 1 ELSE 0 END) AS SIGNED) AS medium,
+                CAST(SUM(CASE WHEN severity = 'Low'      THEN 1 ELSE 0 END) AS SIGNED) AS low
+         FROM logs
+         GROUP BY host
+         ORDER BY critical DESC, high DESC, medium DESC, total DESC",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+// Paginated, most-severe-first log listing for a single host -- what the
+// dashboard's drill-down view fetches a page at a time, instead of ever
+// loading a host's full history into the browser at once.
+pub async fn get_logs_for_host(
+    pool: &DbPool,
+    host: &str,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<LogRow>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT id, severity, user, message, host FROM logs
+         WHERE host = ?
+         ORDER BY FIELD(severity, 'Critical', 'High', 'Medium', 'Low'), id DESC
+         LIMIT ? OFFSET ?",
+    )
+    .bind(host)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn count_logs_for_host(pool: &DbPool, host: &str) -> Result<i64, sqlx::Error> {
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM logs WHERE host = ?")
+        .bind(host)
+        .fetch_one(pool)
+        .await?;
+    Ok(row.0)
+}
+
+// Storage mitigation, part 1: age-based retention. Runs on a schedule
+// from main() using the configurable log_retention_days setting.
+pub async fn delete_logs_older_than(pool: &DbPool, days: i64) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM logs WHERE created_at < (NOW() - INTERVAL ? DAY)")
+        .bind(days)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected())
+}
+
+// Storage mitigation, part 2: a hard row-count ceiling, independent of
+// age. This is the backstop for exactly the scenario that caused this --
+// a bug (or a genuinely noisy source) producing rows faster than any
+// reasonable retention window would clear them. Deletes the oldest rows
+// once the table exceeds max_rows, keeping the most recent max_rows.
+pub async fn enforce_max_log_rows(pool: &DbPool, max_rows: i64) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "DELETE FROM logs WHERE id <= (
+             SELECT id FROM (
+                 SELECT id FROM logs ORDER BY id DESC LIMIT 1 OFFSET ?
+             ) AS cutoff
+         )",
+    )
+    .bind(max_rows)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 // Returns true if the user was created, false if the username was taken.
@@ -301,6 +393,17 @@ pub async fn init_settings_schema(pool: &DbPool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
+    // Retention defaults: 30 days, capped at 2 million rows regardless of
+    // age. The row cap is the important one for a runaway-source scenario
+    // like a feedback loop -- it can fill a disk in hours, well inside any
+    // reasonable day-based window.
+    sqlx::query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS log_retention_days INT NOT NULL DEFAULT 30")
+        .execute(pool)
+        .await?;
+    sqlx::query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS max_log_rows BIGINT NOT NULL DEFAULT 2000000")
+        .execute(pool)
+        .await?;
+ 
     Ok(())
 }
 
@@ -314,6 +417,28 @@ pub async fn get_self_signup_enabled(pool: &DbPool) -> Result<bool, sqlx::Error>
 pub async fn set_self_signup_enabled(pool: &DbPool, enabled:bool) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE settings SET self_signup_enabled = ? WHERE id = 1")
         .bind(enabled)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn get_retention_settings(pool: &DbPool) -> Result<(i64, i64), sqlx::Error> {
+    let row: (i64, i64) = sqlx::query_as(
+        "SELECT log_retention_days, max_log_rows FROM settings WHERE id = 1",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(row)
+}
+
+pub async fn set_retention_settings(
+    pool: &DbPool,
+    log_retention_days: i64,
+    max_log_rows: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE settings SET log_retention_days = ?, max_log_rows = ? WHERE id = 1")
+        .bind(log_retention_days)
+        .bind(max_log_rows)
         .execute(pool)
         .await?;
     Ok(())
