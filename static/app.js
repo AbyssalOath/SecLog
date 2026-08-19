@@ -1,181 +1,198 @@
 // ---------- Dashboard ----------
-let hostSummaries = [];
+let allLogs = [];
+const SEVERITY_RANK = { Critical: 3, High: 2, Medium: 1, Low: 0 };
+const DETAIL_PAGE_SIZE = 25;
+
 let currentHost = null;
-let currentPage = 0;
-const PAGE_SIZE = 50;
-let currentPageLogs = [];
-let currentPageTotal = 0;
- 
+let detailPage = 0;
+let expandedMessageCell = null;
+
 async function initDashboard() {
     const meResp = await authFetch('/me');
     if (meResp.ok) {
         const me = await meResp.json();
         document.getElementById('whoami').innerText = `${me.username} (${me.role})`;
     }
- 
+
     const versionResp = await fetch('/version');
     const versionData = await versionResp.json();
     const badge = document.getElementById('version-badge');
     if (versionData.update_available) {
-    	badge.textContent = `v${versionData.version} -> Update available (v${versionData.latest_version})`;
-    	badge.classList.add('update-available');
+        badge.textContent = `v${versionData.version} — Update available (v${versionData.latest_version})`;
+        badge.classList.add('update-available');
     } else {
-    	badge.textContent = `v${versionData.version}`;
-    	badge.classList.remove('update-available');
+        badge.textContent = `v${versionData.version}`;
+        badge.classList.remove('update-available');
     }
- 
-    await loadHostSummary();
+
+    const response = await authFetch('/logs');
+    allLogs = await response.json();
+
+    document.getElementById('stat-total').textContent = allLogs.length;
+    document.getElementById('stat-errors').textContent = allLogs.filter(l => l.severity === 'High').length;
+    document.getElementById('stat-warns').textContent = allLogs.filter(l => l.severity === 'Critical').length;
+
+    showHostSummary();
 }
- 
-// Dashboard landing view: one row per host, counts only -- never loads
-// raw log rows here. This is what replaced the old "fetch every log row
-// and render it" approach, which could put hundreds of thousands of DOM
-// rows in the page at once and crash the tab (and, since severity counts
-// alone are cheap to compute server-side via GROUP BY, this stays fast
-// even with a very large logs table).
-async function loadHostSummary() {
-    const response = await authFetch('/logs/summary');
-    hostSummaries = await response.json();
- 
-    const total = hostSummaries.reduce((sum, h) => sum + h.total, 0);
-    const high = hostSummaries.reduce((sum, h) => sum + h.high, 0);
-    const critical = hostSummaries.reduce((sum, h) => sum + h.critical, 0);
- 
-    document.getElementById('stat-total').textContent = total;
-    document.getElementById('stat-errors').textContent = high;
-    document.getElementById('stat-warns').textContent = critical;
- 
-    renderHostTable();
-}
- 
+
+// ---- Host summary table (the default landing view) ----
 function renderHostTable() {
     const filter = document.getElementById('host-filter-box').value.toLowerCase();
     const tbody = document.getElementById('host-rows');
     tbody.innerHTML = '';
- 
-    const filtered = hostSummaries.filter(h => h.host.toLowerCase().includes(filter));
- 
-    for (const h of filtered) {
+
+    const byHost = new Map();
+    for (const log of allLogs) {
+        if (!byHost.has(log.host)) byHost.set(log.host, []);
+        byHost.get(log.host).push(log);
+    }
+
+    const hosts = [...byHost.keys()]
+        .filter(h => h.toLowerCase().includes(filter))
+        .sort((a, b) => {
+            const worstA = Math.max(...byHost.get(a).map(l => SEVERITY_RANK[l.severity] ?? 0));
+            const worstB = Math.max(...byHost.get(b).map(l => SEVERITY_RANK[l.severity] ?? 0));
+            if (worstB !== worstA) return worstB - worstA;
+            return byHost.get(b).length - byHost.get(a).length;
+        });
+
+    for (const host of hosts) {
+        const logs = byHost.get(host);
+        const counts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+        for (const l of logs) counts[l.severity] = (counts[l.severity] || 0) + 1;
+
         const row = document.createElement('tr');
         row.className = 'host-row';
-        row.onclick = () => showHostDetail(h.host);
- 
+        row.onclick = () => showHostDetail(host);
+
         const hostCell = document.createElement('td');
-        hostCell.textContent = h.host;
-        hostCell.className = 'host-link';
- 
+        const link = document.createElement('a');
+        link.href = '#';
+        link.className = 'host-link';
+        link.textContent = host;
+        link.onclick = (e) => { e.preventDefault(); showHostDetail(host); };
+        hostCell.appendChild(link);
+
         const totalCell = document.createElement('td');
-        totalCell.textContent = h.total;
- 
-        const critCell = document.createElement('td');
-        critCell.textContent = h.critical;
-        critCell.className = 'level-Critical';
- 
+        totalCell.textContent = logs.length;
+        const criticalCell = document.createElement('td');
+        criticalCell.textContent = counts.Critical;
         const highCell = document.createElement('td');
-        highCell.textContent = h.high;
-        highCell.className = 'level-High';
- 
-        const medCell = document.createElement('td');
-        medCell.textContent = h.medium;
-        medCell.className = 'level-Medium';
- 
+        highCell.textContent = counts.High;
+        const mediumCell = document.createElement('td');
+        mediumCell.textContent = counts.Medium;
         const lowCell = document.createElement('td');
-        lowCell.textContent = h.low;
-        lowCell.className = 'level-Low';
- 
-        row.append(hostCell, totalCell, critCell, highCell, medCell, lowCell);
+        lowCell.textContent = counts.Low;
+
+        row.appendChild(hostCell);
+        row.appendChild(totalCell);
+        row.appendChild(criticalCell);
+        row.appendChild(highCell);
+        row.appendChild(mediumCell);
+        row.appendChild(lowCell);
         tbody.appendChild(row);
     }
 }
- 
+
 function showHostSummary() {
     currentHost = null;
+    document.getElementById('host-summary-view').style.display = 'block';
     document.getElementById('host-detail-view').style.display = 'none';
-    document.getElementById('host-summary-view').style.display = '';
+    renderHostTable();
 }
- 
-async function showHostDetail(host) {
+
+// ---- Per-host drill-down (paginated, filterable) ----
+function showHostDetail(host) {
     currentHost = host;
-    currentPage = 0;
+    detailPage = 0;
     document.getElementById('host-summary-view').style.display = 'none';
-    document.getElementById('host-detail-view').style.display = '';
+    document.getElementById('host-detail-view').style.display = 'block';
     document.getElementById('host-detail-title').textContent = host;
-    await loadDetailPage();
-}
- 
-// One page of a single host's detections, most-severe-first, straight
-// from the server (see get_logs_for_host in db.rs) -- never more than
-// PAGE_SIZE rows in the DOM at a time no matter how large that host's
-// history is.
-async function loadDetailPage() {
-    const offset = currentPage * PAGE_SIZE;
-    const response = await authFetch(`/logs?host=${encodeURIComponent(currentHost)}&limit=${PAGE_SIZE}&offset=${offset}`);
-    const data = await response.json();
-    currentPageLogs = data.logs;
-    currentPageTotal = data.total;
+    document.getElementById('detail-filter-box').value = '';
     renderDetailTable();
- 
-    const maxPage = Math.max(0, Math.ceil(currentPageTotal / PAGE_SIZE) - 1);
-    document.getElementById('detail-page-info').textContent =
-        `Page ${currentPage + 1} of ${maxPage + 1} (${currentPageTotal} total)`;
-    document.getElementById('detail-prev').disabled = currentPage <= 0;
-    document.getElementById('detail-next').disabled = currentPage >= maxPage;
 }
- 
+
 function changeDetailPage(delta) {
-    currentPage += delta;
-    loadDetailPage();
+    detailPage += delta;
+    renderDetailTable();
 }
- 
+
+function makeRow(log) {
+    const row = document.createElement('tr');
+    const idCell = document.createElement('td');
+    idCell.textContent = log.id;
+    const severityCell = document.createElement('td');
+    severityCell.textContent = log.severity;
+    severityCell.className = 'level-' + log.severity;
+    const userCell = document.createElement('td');
+    userCell.textContent = log.user;
+
+    const messageCell = document.createElement('td');
+    messageCell.textContent = log.message;
+    messageCell.className = 'message-cell';
+    messageCell.onclick = () => {
+        if (expandedMessageCell === messageCell) {
+            messageCell.classList.remove('expanded');
+            expandedMessageCell = null;
+            return;
+        }
+        if (expandedMessageCell) expandedMessageCell.classList.remove('expanded');
+        messageCell.classList.add('expanded');
+        expandedMessageCell = messageCell;
+    };
+
+    row.appendChild(idCell);
+    row.appendChild(severityCell);
+    row.appendChild(userCell);
+    row.appendChild(messageCell);
+    return row;
+}
+
 function renderDetailTable() {
+    if (!currentHost) return;
+
     const filter = document.getElementById('detail-filter-box').value.toLowerCase();
+    const severityFilter = document.getElementById('detail-severity-filter').value;
+    const logs = allLogs.filter(l => l.host === currentHost);
+    const filtered = logs.filter(l =>
+    	(l.user.toLowerCase().includes(filter) || l.message.toLowerCase().includes(filter)) &&
+    	(severityFilter === '' || l.severity === severityFilter)
+    );
+
+    // Worst severity first.
+    filtered.sort((a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0));
+
+    const totalPages = Math.max(1, Math.ceil(filtered.length / DETAIL_PAGE_SIZE));
+    if (detailPage < 0) detailPage = 0;
+    if (detailPage >= totalPages) detailPage = totalPages - 1;
+
+    const start = detailPage * DETAIL_PAGE_SIZE;
+    const pageItems = filtered.slice(start, start + DETAIL_PAGE_SIZE);
+
     const tbody = document.getElementById('log-rows');
     tbody.innerHTML = '';
- 
-    const filtered = currentPageLogs.filter(log =>
-        log.user.toLowerCase().includes(filter) ||
-        log.message.toLowerCase().includes(filter)
-    );
- 
-    for (const log of filtered) {
-        const row = document.createElement('tr');
-        const idCell = document.createElement('td');
-        idCell.textContent = log.id;
-        const severityCell = document.createElement('td');
-        severityCell.textContent = log.severity;
-        severityCell.className = 'level-' + log.severity;
-        const userCell = document.createElement('td');
-        userCell.textContent = log.user;
- 
-        // Message is truncated visually (see .message-cell CSS) so one
-        // long line can't stretch the table off-screen -- full text is
-        // still available via the native title tooltip on hover.
-        const messageCell = document.createElement('td');
-        messageCell.textContent = log.message;
-        messageCell.className = 'message-cell';
-        messageCell.title = log.message;
- 
-        row.appendChild(idCell);
-        row.appendChild(severityCell);
-        row.appendChild(userCell);
-        row.appendChild(messageCell);
-        tbody.appendChild(row);
-    }
+    expandedMessageCell = null;
+    for (const log of pageItems) tbody.appendChild(makeRow(log));
+
+    document.getElementById('detail-page-info').textContent =
+        `Page ${detailPage + 1} of ${totalPages} (${filtered.length} total)`;
+    document.getElementById('detail-prev').disabled = detailPage === 0;
+    document.getElementById('detail-next').disabled = detailPage >= totalPages - 1;
 }
- 
+
 // ---------- Users ----------
 async function initUsers() {
     const response = await authFetch('/users');
- 
+
     if (response.status === 403) {
         document.getElementById('users-result').innerText = 'Access denied: admin only.';
         return;
     }
- 
+
     const users = await response.json();
     const tbody = document.getElementById('user-rows');
     tbody.innerHTML = '';
- 
+
     for (const user of users) {
         const row = document.createElement('tr');
         const idCell = document.createElement('td');
@@ -184,30 +201,30 @@ async function initUsers() {
         usernameCell.textContent = user.username;
         const roleCell = document.createElement('td');
         roleCell.textContent = user.role;
- 
+
         row.appendChild(idCell);
         row.appendChild(usernameCell);
         row.appendChild(roleCell);
         tbody.appendChild(row);
     }
 }
- 
+
 // ---------- Agents ----------
 async function generateEnrollmentToken() {
     const response = await authFetch('/agents/enrollment-token', { method: 'POST' });
     if (response.ok) {
         const data = await response.json();
         const origin = window.location.origin;
- 
+
         document.getElementById('enrollment-result').innerHTML =
             `Token (one-time use): <code id="enrollment-token-value"></code> ` +
             `<button id="copy-enrollment-token">Copy</button><br><br>` +
             `<strong>Linux (sudo/root required):</strong><br><code>curl -sL ${origin}/install/linux.sh | bash</code><br><br>` +
             `<strong>Windows (PowerShell, as Administrator):</strong><br><code>iwr ${origin}/install/windows.ps1 | iex</code>`;
- 
+
         // textContent, not innerHTML -- the token is just data, never markup.
         document.getElementById('enrollment-token-value').textContent = data.token;
- 
+
         document.getElementById('copy-enrollment-token').onclick = async () => {
             try {
                 await navigator.clipboard.writeText(data.token);
@@ -222,32 +239,32 @@ async function generateEnrollmentToken() {
         document.getElementById('enrollment-result').innerText = 'Failed: ' + response.status;
     }
 }
- 
+
 let selectedAgentId = null;
- 
+
 async function initAgents() {
     const meResp = await authFetch('/me');
     const me = await meResp.json();
- 
+
     if (me.role !== 'admin') {
         document.getElementById('agents-access-result').innerText = 'Access denied: admin only.';
         return;
     }
- 
+
     document.getElementById('agents-content').style.display = 'block';
     loadAgents();
 }
- 
+
 async function registerAgent() {
     const hostname = document.getElementById('new-hostname').value.trim();
     if (!hostname) return;
- 
+
     const response = await authFetch('/agents/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ hostname })
     });
- 
+
     if (response.ok) {
         const data = await response.json();
         document.getElementById('register-result').innerText =
@@ -258,14 +275,14 @@ async function registerAgent() {
         document.getElementById('register-result').innerText = 'Registration failed: ' + response.status;
     }
 }
- 
+
 async function loadAgents() {
     const response = await authFetch('/agents');
     const agents = await response.json();
- 
+
     const tbody = document.getElementById('agent-rows');
     tbody.innerHTML = '';
- 
+
     for (const agent of agents) {
         const row = document.createElement('tr');
         const idCell = document.createElement('td');
@@ -274,19 +291,19 @@ async function loadAgents() {
         hostCell.textContent = agent.hostname;
         const seenCell = document.createElement('td');
         seenCell.textContent = agent.last_seen ? agent.last_seen : 'Never';
- 
+
         const manageCell = document.createElement('td');
         const manageBtn = document.createElement('button');
         manageBtn.textContent = 'Manage Paths';
         manageBtn.onclick = () => selectAgent(agent.id, agent.hostname);
         manageCell.appendChild(manageBtn);
- 
+
         const deleteCell = document.createElement('td');
         const deleteBtn = document.createElement('button');
         deleteBtn.textContent = 'Remove';
         deleteBtn.onclick = () => deleteAgent(agent.id);
         deleteCell.appendChild(deleteBtn);
- 
+
         row.appendChild(idCell);
         row.appendChild(hostCell);
         row.appendChild(seenCell);
@@ -295,10 +312,10 @@ async function loadAgents() {
         tbody.appendChild(row);
     }
 }
- 
+
 async function deleteAgent(agentId) {
     if (!confirm('Remove this agent? Its API key will stop working immediately.')) return;
- 
+
     const response = await authFetch(`/agents/${agentId}`, { method: 'DELETE' });
     if (response.ok) {
         loadAgents();
@@ -306,21 +323,21 @@ async function deleteAgent(agentId) {
         alert('Failed to remove agent: ' + response.status);
     }
 }
- 
+
 function selectAgent(agentId, hostname) {
     selectedAgentId = agentId;
     document.getElementById('path-manager').style.display = 'block';
     document.getElementById('path-manager-title').innerText = `Watched Paths: ${hostname}`;
     loadPaths();
 }
- 
+
 async function loadPaths() {
     const response = await authFetch(`/agents/${selectedAgentId}/paths`);
     const paths = await response.json();
- 
+
     const tbody = document.getElementById('path-rows');
     tbody.innerHTML = '';
- 
+
     for (const p of paths) {
         const row = document.createElement('tr');
         const pathCell = document.createElement('td');
@@ -336,28 +353,28 @@ async function loadPaths() {
         deleteBtn.textContent = 'Remove';
         deleteBtn.onclick = () => deletePath(p.id);
         actionCell.appendChild(deleteBtn);
- 
+
         row.appendChild(pathCell);
         row.appendChild(enabledCell);
         row.appendChild(actionCell);
         tbody.appendChild(row);
     }
 }
- 
+
 async function addPath() {
     const path = document.getElementById('new-path').value.trim();
     if (!path) return;
- 
+
     await authFetch(`/agents/${selectedAgentId}/paths`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path })
     });
- 
+
     document.getElementById('new-path').value = '';
     loadPaths();
 }
- 
+
 async function togglePath(pathId, enabled) {
     await authFetch(`/paths/${pathId}/enabled`, {
         method: 'POST',
@@ -365,46 +382,49 @@ async function togglePath(pathId, enabled) {
         body: JSON.stringify({ enabled })
     });
 }
- 
+
 async function deletePath(pathId) {
     await authFetch(`/paths/${pathId}`, { method: 'DELETE' });
     loadPaths();
 }
- 
+
 // ---------- Settings ----------
 async function initSettings() {
     const meResp = await authFetch('/me');
     const me = await meResp.json();
- 
+
     if (me.role !== 'admin') {
         document.getElementById('settings-access-result').innerText = 'Access denied: admin only.';
         return;
     }
- 
+
     document.getElementById('settings-content').style.display = 'block';
     loadGeneralSettings();
 }
- 
+
 function showTab(tab) {
     document.getElementById('tab-general').style.display = tab === 'general' ? 'block' : 'none';
     document.getElementById('tab-security').style.display = tab === 'security' ? 'block' : 'none';
     document.getElementById('tab-alerts').style.display = tab === 'alerts' ? 'block' : 'none';
- 
+
     document.getElementById('tab-link-general').classList.toggle('active', tab === 'general');
     document.getElementById('tab-link-security').classList.toggle('active', tab === 'security');
     document.getElementById('tab-link-alerts').classList.toggle('active', tab === 'alerts');
- 
-    if (tab === 'security') loadUsersPanel();
+
+    if (tab === 'security') {
+        loadUsersPanel();
+        loadMfaStatus();
+    }
 }
- 
+
 async function loadUsersPanel() {
     const response = await authFetch('/users');
     if (response.status === 403) return;
     const users = await response.json();
- 
+
     const tbody = document.getElementById('user-rows');
     tbody.innerHTML = '';
- 
+
     for (const user of users) {
         const row = document.createElement('tr');
         const idCell = document.createElement('td');
@@ -418,7 +438,7 @@ async function loadUsersPanel() {
         delBtn.textContent = 'Remove';
         delBtn.onclick = () => deleteUser(user.id);
         actionCell.appendChild(delBtn);
- 
+
         row.appendChild(idCell);
         row.appendChild(usernameCell);
         row.appendChild(roleCell);
@@ -426,80 +446,80 @@ async function loadUsersPanel() {
         tbody.appendChild(row);
     }
 }
- 
+
 async function createUser() {
     const username = document.getElementById('new-user-username').value.trim();
     const role = document.getElementById('new-user-role').value;
- 
+
     if (!username) return;
- 
+
     const response = await authFetch('/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, role })
     });
- 
+
     const resultEl = document.getElementById('create-user-result');
- 
+
     if (response.ok) {
         const data = await response.json();
- 
+
         // Keep the temporary password only in this local variable.
         // Do NOT put it in localStorage, sessionStorage, or window.
         const temporaryPassword = data.temporary_password;
- 
+
         resultEl.innerHTML =
             `<strong>User created.</strong><br>` +
             `Temporary password: ` +
             `<code id="temporary-password"></code> ` +
             `<button id="copy-temporary-password">Copy</button><br>` +
             `<small>This password will be shown once. The user must change it on first login.</small>`;
- 
+
         // textContent avoids interpreting the password as HTML.
         const passwordElement =
             document.getElementById('temporary-password');
- 
+
         passwordElement.textContent = temporaryPassword;
- 
+
         const copyButton =
             document.getElementById('copy-temporary-password');
- 
+
         copyButton.onclick = async () => {
             try {
                 await navigator.clipboard.writeText(temporaryPassword);
- 
+
                 // Immediately remove the password from the page.
                 passwordElement.textContent = '[copied — no longer displayed]';
- 
+
                 // Disable the button so it can't be copied again.
                 copyButton.disabled = true;
                 copyButton.textContent = 'Copied';
- 
+
                 // Remove the plaintext from this closure shortly after use.
                 // JavaScript cannot guarantee immediate memory erasure,
                 // but this removes our references to it.
                 setTimeout(() => {
                     passwordElement.remove();
                 }, 1000);
- 
+
             } catch (err) {
                 passwordElement.textContent =
                     '[copy failed — password still visible]';
             }
         };
- 
+
         document.getElementById('new-user-username').value = '';
- 
+
         loadUsersPanel();
- 
+
     } else if (response.status === 409) {
         resultEl.innerText = 'Username already taken.';
- 
+
     } else {
         resultEl.innerText = 'Failed: ' + response.status;
     }
 }
- 
+
 async function deleteUser(userId) {
     const response = await authFetch(`/admin/users/${userId}`, { method: 'DELETE' });
     if (response.ok) {
@@ -510,7 +530,7 @@ async function deleteUser(userId) {
         alert('Failed to remove user: ' + response.status);
     }
 }
- 
+
 // ---------- Forced password change ----------
 function initForceChangePassword() {
     document.getElementById('content').innerHTML = `
@@ -527,12 +547,12 @@ function initForceChangePassword() {
         </div>
     `;
 }
- 
+
 async function submitPasswordChange() {
     const current = document.getElementById('cp-current').value;
     const next = document.getElementById('cp-new').value;
     const confirmVal = document.getElementById('cp-confirm').value;
- 
+
     if (next.length < 15) {
         document.getElementById('cp-result').innerText = 'New password must be at least 15 characters.';
         return;
@@ -541,7 +561,7 @@ async function submitPasswordChange() {
         document.getElementById('cp-result').innerText = 'Passwords do not match.';
         return;
     }
- 
+
     // Deliberately NOT using authFetch here: its blanket 401-handling would
     // log the user out on a wrong "current password" guess, when what we
     // actually want is to show an error and let them retry.
@@ -556,7 +576,7 @@ async function submitPasswordChange() {
             new_password: next
     	})
     });
- 
+
     if (response.ok) {
 	sessionStorage.removeItem('must_change_password');
         renderSidebar();
@@ -567,9 +587,9 @@ async function submitPasswordChange() {
         document.getElementById('cp-result').innerText = 'Failed: ' + response.status;
     }
 }
- 
+
 let currentSettings = {};
- 
+
 async function loadGeneralSettings() {
     const response = await authFetch('/settings');
     currentSettings = await response.json();
@@ -577,36 +597,172 @@ async function loadGeneralSettings() {
     document.getElementById('retention-days').value = currentSettings.log_retention_days;
     document.getElementById('retention-max-rows').value = currentSettings.max_log_rows;
 }
- 
+
 async function saveSettings(overrides) {
     const payload = { ...currentSettings, ...overrides };
- 
+
     const response = await authFetch('/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
     });
- 
+
     if (response.ok) {
         currentSettings = payload;
     }
     document.getElementById('general-result').innerText = response.ok ? 'Saved.' : 'Failed to save: ' + response.status;
     return response.ok;
 }
- 
+
 async function updateSelfSignup() {
     const enabled = document.getElementById('self-signup-toggle').checked;
     await saveSettings({ self_signup_enabled: enabled });
 }
- 
+
 async function saveRetentionSettings() {
     const days = parseInt(document.getElementById('retention-days').value, 10);
     const maxRows = parseInt(document.getElementById('retention-max-rows').value, 10);
- 
+
     if (!Number.isFinite(days) || days < 1 || !Number.isFinite(maxRows) || maxRows < 1000) {
         document.getElementById('general-result').innerText = 'Retention days must be >= 1 and max rows >= 1000.';
         return;
     }
- 
+
     await saveSettings({ log_retention_days: days, max_log_rows: maxRows });
+}
+
+// ---------- MFA ----------
+// QR rendering is loaded lazily and only client-side -- the server never
+// generates an image, just the otpauth:// URL and the base32 secret; this
+// library turns the URL into a scannable code in the browser.
+let mfaQrLibLoaded = false;
+let mfaCurrentSecretBase32 = '';
+
+function loadMfaQrLib() {
+    return new Promise((resolve, reject) => {
+        if (mfaQrLibLoaded || window.QRCode) {
+            mfaQrLibLoaded = true;
+            resolve();
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+        script.onload = () => { mfaQrLibLoaded = true; resolve(); };
+        script.onerror = () => reject(new Error('Failed to load QR code library'));
+        document.head.appendChild(script);
+    });
+}
+
+function setMfaResult(text, ok) {
+    const el = document.getElementById('mfa-result');
+    el.style.color = ok ? '#4caf50' : 'var(--blood-bright)';
+    el.innerText = text;
+}
+
+async function loadMfaStatus() {
+    const response = await authFetch('/mfa/status');
+    if (!response.ok) return;
+    const data = await response.json();
+
+    document.getElementById('mfa-status-off').style.display = data.mfa_enabled ? 'none' : 'block';
+    document.getElementById('mfa-status-on').style.display = data.mfa_enabled ? 'block' : 'none';
+    document.getElementById('mfa-setup-flow').style.display = 'none';
+    document.getElementById('mfa-result').innerText = '';
+}
+
+async function startMfaSetup() {
+    const response = await authFetch('/mfa/setup', { method: 'POST' });
+
+    if (!response.ok) {
+        setMfaResult('Failed to start MFA setup: ' + response.status, false);
+        return;
+    }
+
+    const data = await response.json();
+    mfaCurrentSecretBase32 = data.secret_base32;
+
+    document.getElementById('mfa-manual-secret').textContent = data.secret_base32;
+    document.getElementById('mfa-verify-code').value = '';
+    document.getElementById('mfa-result').innerText = '';
+    document.getElementById('mfa-setup-flow').style.display = 'block';
+
+    try {
+        await loadMfaQrLib();
+        const qrParent = document.getElementById('mfa-qr-container');
+        qrParent.innerHTML = ''; // clear any previous QR before redrawing
+        new QRCode(qrParent, {
+            text: data.otpauth_url,
+            width: 200,
+            height: 200,
+        });
+    } catch (e) {
+        setMfaResult('QR rendering unavailable -- use the manual key below instead.', false);
+    }
+}
+
+async function confirmMfaSetup() {
+    const code = document.getElementById('mfa-verify-code').value.trim();
+
+    if (!/^\d{6}$/.test(code)) {
+        setMfaResult('Enter the 6-digit code from your authenticator app.', false);
+        return;
+    }
+
+    const response = await authFetch('/mfa/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+    });
+
+    if (response.ok) {
+        setMfaResult('MFA enabled.', true);
+        loadMfaStatus();
+    } else if (response.status === 401) {
+        setMfaResult('Incorrect code. Try again.', false);
+    } else {
+        setMfaResult('Failed: ' + response.status, false);
+    }
+}
+
+function cancelMfaSetup() {
+    document.getElementById('mfa-setup-flow').style.display = 'none';
+    document.getElementById('mfa-result').innerText = '';
+}
+
+async function disableMfa() {
+    const password = document.getElementById('mfa-disable-password').value;
+
+    if (!password) {
+        setMfaResult('Enter your current password to disable MFA.', false);
+        return;
+    }
+
+    const response = await authFetch('/mfa/disable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+    });
+
+    document.getElementById('mfa-disable-password').value = '';
+
+    if (response.ok) {
+        setMfaResult('MFA disabled.', true);
+        loadMfaStatus();
+    } else if (response.status === 401) {
+        setMfaResult('Incorrect password.', false);
+    } else {
+        setMfaResult('Failed: ' + response.status, false);
+    }
+}
+
+async function copyMfaSecret() {
+    try {
+        await navigator.clipboard.writeText(mfaCurrentSecretBase32);
+        const btn = document.getElementById('mfa-copy-secret');
+        btn.textContent = 'Copied';
+        btn.disabled = true;
+        setTimeout(() => { btn.textContent = 'Copy'; btn.disabled = false; }, 1500);
+    } catch (e) {
+        // Clipboard API unavailable -- the key is still visible to select and copy manually.
+    }
 }

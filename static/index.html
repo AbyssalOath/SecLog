@@ -26,6 +26,13 @@
                 <div class="auth-switch">Have an account? <a href="#" onclick="showLogin()">Sign in</a></div>
             </div>
 
+            <div id="mfa-form" style="display:none;">
+                <div class="hint" style="text-align:center; margin-bottom:0.75rem;">Enter the 6-digit code from your authenticator app.</div>
+                <input id="mfa-code" placeholder="6-digit code" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+                <button onclick="verifyMfaLogin()">Verify</button>
+                <div class="auth-switch"><a href="#" onclick="cancelMfaLogin()">Back to sign in</a></div>
+            </div>
+
             <div id="result"></div>
         </div>
     </div>
@@ -39,9 +46,32 @@
 
 		function showLogin() {
 			document.getElementById('signup-form').style.display = 'none';
+			document.getElementById('mfa-form').style.display = 'none';
 			document.getElementById('login-form').style.display = 'block';
 			document.getElementById('result').innerText = '';
 		}
+
+		function showMfaPrompt() {
+			document.getElementById('login-form').style.display = 'none';
+			document.getElementById('signup-form').style.display = 'none';
+			document.getElementById('mfa-form').style.display = 'block';
+			document.getElementById('result').innerText = '';
+			document.getElementById('mfa-code').value = '';
+			document.getElementById('mfa-code').focus();
+		}
+
+		function cancelMfaLogin() {
+			mfaPendingToken = null;
+			document.getElementById('password').value = '';
+			showLogin();
+		}
+
+		// Not a session credential -- just proof the password already
+		// checked out, scoped to a single pending TOTP attempt. Kept only
+		// in memory (not sessionStorage/localStorage): if the tab is
+		// closed mid-MFA-prompt, the login simply has to restart, which is
+		// the right failure mode for an in-progress authentication step.
+		let mfaPendingToken = null;
 
 		async function login() {
 			const username = document.getElementById('username').value;
@@ -56,6 +86,13 @@
 
 			if (response.ok) {
 				const data = await response.json();
+
+				if (data.mfa_required) {
+					mfaPendingToken = data.pending_token;
+					showMfaPrompt();
+					return;
+				}
+
 				// The session itself now lives in an httpOnly cookie the
 				// server just set on this response -- nothing for JS to
 				// store. must_change_password is just a UX hint for which
@@ -65,6 +102,40 @@
 			} else {
 				document.getElementById('result').innerText =
 					'Login failed: ' + response.status;
+			}
+		}
+
+		async function verifyMfaLogin() {
+			const code = document.getElementById('mfa-code').value.trim();
+
+			if (!/^\d{6}$/.test(code)) {
+				document.getElementById('result').innerText = 'Enter the 6-digit code.';
+				return;
+			}
+			if (!mfaPendingToken) {
+				document.getElementById('result').innerText = 'Session expired -- please sign in again.';
+				showLogin();
+				return;
+			}
+
+			const response = await fetch('/mfa/login-verify', {
+				method: 'POST',
+				credentials: 'include',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ pending_token: mfaPendingToken, code })
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				mfaPendingToken = null;
+				sessionStorage.setItem('must_change_password', data.must_change_password ? 'true' : 'false');
+				window.location.href = '/app.html';
+			} else if (response.status === 401) {
+				document.getElementById('result').innerText = 'Incorrect code. Try again.';
+			} else if (response.status === 429) {
+				document.getElementById('result').innerText = 'Too many attempts. Please wait and try again.';
+			} else {
+				document.getElementById('result').innerText = 'Verification failed: ' + response.status;
 			}
 		}
 
@@ -129,6 +200,9 @@
 		});
 		document.getElementById('signup-password-confirm').addEventListener('keydown', (e) => {
     			if (e.key === 'Enter') signup();
+		});
+		document.getElementById('mfa-code').addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') verifyMfaLogin();
 		});
 
 		async function checkSignupStatus() {

@@ -31,6 +31,7 @@ services:
       # service name, not localhost. This is an important shift from how
       # your Rust binary connected to it during local (non-Docker) testing.
       DATABASE_URL: mysql://${DB_USER}:${DB_PASS}@mariadb:3306/${DB_NAME}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN}
     ports:
       - "3000:3000"
     healthcheck:

@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use totp_rs::{Algorithm, Secret, TOTP};
 
 // Tracks recent failed login attempts per username. Wrapped in a Mutex so
 // multiple concurrent requests can safely read/modify it -- Rust won't let
@@ -111,4 +112,78 @@ pub fn generate_temporary_password() -> String {
         .take(24)
         .map(char::from)
         .collect()
+}
+
+// --- Multi-Factor Authentication (TOTP, RFC 6238) ---
+//
+// Standard 6-digit / 30-second / SHA1 TOTP -- deliberately the most
+// widely-compatible combination, since that's what nearly every
+// authenticator app (Aegis, Google Authenticator, Authy, 1Password,
+// Bitwarden, etc.) assumes by default. Some apps silently fall back to
+// SHA1 even when a QR advertises SHA256/SHA512 and just fail to match,
+// so we don't offer those as an option here.
+const MFA_ISSUER: &str = "SecLog";
+
+// We store the secret in the DB as our own hex string (matching the hex
+// pattern already used for token hashes in this file) rather than as
+// base32 -- base32 is only a wire/display format TOTP needs for QR/manual
+// entry, not a storage requirement. `mfa_secret_from_hex` reverses this
+// whenever we need to rebuild a `TOTP` struct.
+pub fn generate_mfa_secret_hex() -> Result<String, String> {
+    let bytes = Secret::generate_secret()
+        .to_bytes()
+        .map_err(|e| format!("{:?}", e))?;
+    Ok(bytes.iter().map(|b| format!("{:02x}", b)).collect())
+}
+
+fn mfa_secret_from_hex(hex: &str) -> Option<Vec<u8>> {
+    if hex.is_empty() || hex.len() % 2 != 0 {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+        .collect()
+}
+
+fn build_totp(secret_hex: &str, username: &str) -> Option<TOTP> {
+    let bytes = mfa_secret_from_hex(secret_hex)?;
+    TOTP::new(
+        Algorithm::SHA1,
+        6,
+        1,  // skew: accept the previous/next 30s step too, to absorb
+            // ordinary phone clock drift without widening the window
+            // enough to matter for security.
+        30,
+        bytes,
+        Some(MFA_ISSUER.to_string()),
+        username.to_string(),
+    )
+    .ok()
+}
+
+// Everything an authenticator app needs to provision this account: a
+// scannable otpauth:// URL (rendered as a QR code client-side) and the
+// same secret spelled out in base32 for apps -- like Aegis -- that offer
+// "enter code manually" as an alternative to scanning.
+pub struct MfaProvisioning {
+    pub otpauth_url: String,
+    pub secret_base32: String,
+}
+
+pub fn mfa_provisioning(secret_hex: &str, username: &str) -> Option<MfaProvisioning> {
+    let totp = build_totp(secret_hex, username)?;
+    Some(MfaProvisioning {
+        otpauth_url: totp.get_url(),
+        secret_base32: totp.get_secret_base32(),
+    })
+}
+
+// Verifies a 6-digit code against a stored secret, allowing the ~30s of
+// clock skew configured above.
+pub fn verify_totp_code(secret_hex: &str, username: &str, code: &str) -> bool {
+    match build_totp(secret_hex, username) {
+        Some(totp) => totp.check_current(code).unwrap_or(false),
+        None => false,
+    }
 }

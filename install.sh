@@ -33,6 +33,29 @@ EOF
     chmod 600 .env  # restrict readability to the owning user only
     echo ".env generated with strong random secrets."
 fi
+
+# --- Frontend origin (used to lock down CORS) ---
+# Checked independently of the block above -- this needs to run on
+# upgrades of an existing .env too, not just fresh installs, since older
+# installs won't have this value and the server now refuses to start
+# without it.
+if grep -q "^FRONTEND_ORIGIN=" .env 2>/dev/null; then
+    echo "FRONTEND_ORIGIN already recorded in .env -- skipping prompt."
+else
+    echo ""
+    echo "What URL will people use in their browser to reach Seclog?"
+    echo "(the full https:// address -- used to restrict which origins"
+    echo "are allowed to talk to the API)"
+    read -rp "Frontend URL (e.g. https://seclog.example.com): " frontend_origin
+
+    if [ -z "$frontend_origin" ]; then
+        echo "A frontend URL is required -- Seclog won't start without it."
+        exit 1
+    fi
+
+    echo "FRONTEND_ORIGIN=${frontend_origin}" >> .env
+    echo "FRONTEND_ORIGIN set to '${frontend_origin}'."
+fi
  
 # --- Reverse proxy setup ---
 # Seclog's session cookie uses the browser-enforced __Host- prefix, which

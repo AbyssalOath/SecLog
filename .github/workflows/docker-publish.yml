@@ -2,7 +2,7 @@ name: Publish Docker Image
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     tags: ['v*']
 
 jobs:
@@ -25,11 +25,20 @@ jobs:
         id: version
         run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
+      - name: Determine floating tag
+        id: floating
+        run: |
+          if [ "${{ github.ref_name }}" = "dev" ] && [ "${{ github.ref_type }}" = "branch" ]; then
+            echo "tag=dev" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/lordsodomiser/seclog:latest
             ghcr.io/lordsodomiser/seclog:${{ steps.version.outputs.version }}
+            ghcr.io/lordsodomiser/seclog:${{ steps.floating.outputs.tag }}

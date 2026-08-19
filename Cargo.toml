@@ -1,6 +1,6 @@
 [package]
 name = "seclog"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 
 [dependencies]
@@ -20,4 +20,5 @@ sha2 = "0.11.0"
 sqlx = { version = "0.9.0", features = ["runtime-tokio", "mysql", "chrono"] }
 time = "0.3"
 tokio = { version = "1.53.1", features = ["full"] }
-tower-http = { version = "0.7.0", features = ["cors", "fs"] }
+tower-http = { version = "0.7.0", features = ["cors", "fs", "set-header"] }
+totp-rs = { version = "5.7", features = ["gen_secret", "otpauth"] }

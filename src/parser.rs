@@ -39,6 +39,19 @@ fn rules() -> &'static Vec<Rule> {
             Rule { pattern: Regex::new(r"(?i)EventID=1102").unwrap(), severity: Severity::Critical, label: "Audit log cleared" },
             Rule { pattern: Regex::new(r"(?i)history -c|unset HISTFILE").unwrap(), severity: Severity::High, label: "Shell history cleared/disabled" },
 
+            // --- Linux audit subsystem (auditd) ---
+            // These come from the kernel audit framework itself (type=XXX lines),
+            // a different source than syslog/auth.log text. Distinguishing
+            // res=success from res=failed on the same event type matters --
+            // treating them identically was leaving failed logins misclassified
+            // as "Unclassified" alongside routine session teardown noise.
+            Rule { pattern: Regex::new(r"(?=.*type=USER_LOGIN)(?=.*res=failed)").unwrap(), severity: Severity::Medium, label: "Failed login (audit)" },
+            Rule { pattern: Regex::new(r"(?=.*type=USER_LOGIN)(?=.*res=success)").unwrap(), severity: Severity::Low, label: "Successful login (audit)" },
+            Rule { pattern: Regex::new(r"(?=.*type=CRYPTO_KEY_USER)(?=.*res=success)").unwrap(), severity: Severity::Low, label: "SSH session key teardown (routine)" },
+            Rule { pattern: Regex::new(r"type=CRYPTO_KEY_USER").unwrap(), severity: Severity::Low, label: "SSH crypto key event" },
+            Rule { pattern: Regex::new(r"type=USER_START").unwrap(), severity: Severity::Low, label: "Session started (audit)" },
+            Rule { pattern: Regex::new(r"type=USER_END").unwrap(), severity: Severity::Low, label: "Session ended (audit)" },
+
             // --- SSH / remote access ---
             // Specific phrasing first, generic "Invalid user"/"Failed password"
             // last since several other patterns' text also contains those words.
