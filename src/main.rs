@@ -109,6 +109,7 @@ struct AppState {
     rate_limiter: Arc<LoginRateLimiter>,
     register_rate_limiter: Arc<LoginRateLimiter>,
     mfa_rate_limiter: Arc<LoginRateLimiter>,
+    agent_register_rate_limiter: Arc<LoginRateLimiter>,
 }
 
 async fn create_log(
@@ -1059,8 +1060,23 @@ async fn generate_enrollment_token(
 // admin-issued, and consumed atomically on first successful use.
 async fn self_register_agent(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<models::SelfRegisterRequest>,
 ) -> Result<Json<models::RegisterAgentResponse>, StatusCode> {
+    // Trusts X-Forwarded-For because Caddy is the only thing that can
+    // reach this service directly (app:3000 isn't published to the host).
+    let ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(str::trim)
+        .unwrap_or("unknown")
+        .to_string();
+
+    if !state.agent_register_rate_limiter.check(&ip) {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+
     if payload.hostname.trim().is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -1070,6 +1086,7 @@ async fn self_register_agent(
         .map_err(|e| { eprintln!("DB error: {}", e); StatusCode::INTERNAL_SERVER_ERROR })?;
 
     if !valid {
+        state.agent_register_rate_limiter.record_failure(&ip);
         return Err(StatusCode::UNAUTHORIZED);
     }
 
@@ -1214,6 +1231,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         rate_limiter: Arc::new(LoginRateLimiter::new()),
         register_rate_limiter: Arc::new(LoginRateLimiter::new()),
         mfa_rate_limiter: Arc::new(LoginRateLimiter::new()),
+        agent_register_rate_limiter: Arc::new(LoginRateLimiter::new()),
     };
 
     // tokio::spawn starts a task that runs concurrently, independent of the
