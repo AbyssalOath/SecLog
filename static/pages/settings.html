@@ -21,28 +21,46 @@
             </label>
             <div id="general-result"></div>
         </div>
-
-        <div class="panel">
-            <h2>Log Retention</h2>
-            <div class="panel-desc">Automatic cleanup runs every 15 minutes. Rows are dropped once they exceed either limit below, whichever comes first -- the row cap is your backstop against a noisy or misbehaving source filling up storage faster than the day-based window would clear it.</div>
-            <div class="inline-form">
-                <label>Delete logs older than
-                    <input type="number" id="retention-days" min="1" style="width:5rem;"> days
-                </label>
-            </div>
-            <div class="inline-form">
-                <label>Keep at most
-                    <input type="number" id="retention-max-rows" min="1000" step="1000" style="width:8rem;"> rows total
-                </label>
-            </div>
-            <button onclick="saveRetentionSettings()">Save Retention Settings</button>
-        </div>
     </div>
 
     <div id="tab-security" style="display:none;">
         <div class="panel">
             <h2>Multi-Factor Authentication</h2>
-            <div class="panel-desc">Not implemented yet — requires per-user TOTP secrets, QR provisioning, and a second login step.</div>
+            <div class="panel-desc">Protect your own account with a TOTP authenticator app (Aegis, Google Authenticator, Authy, 1Password, etc).</div>
+
+            <div id="mfa-status-off">
+                <div id="mfa-off-label" style="color:var(--text-dim); font-size:0.85rem; margin-bottom:0.75rem;">MFA is currently <strong style="color:var(--blood-bright);">disabled</strong> on your account.</div>
+                <button onclick="startMfaSetup()">Enable MFA</button>
+            </div>
+
+            <div id="mfa-status-on" style="display:none;">
+                <div style="color:var(--text-dim); font-size:0.85rem; margin-bottom:0.75rem;">MFA is currently <strong style="color:#4caf50;">enabled</strong> on your account.</div>
+                <input id="mfa-disable-password" type="password" placeholder="Current password to disable">
+                <button onclick="disableMfa()">Disable MFA</button>
+            </div>
+
+            <div id="mfa-setup-flow" style="display:none; margin-top:1rem;">
+                <div class="hint" style="margin-bottom:0.75rem;">
+                    Scan this QR code with your authenticator app. In Aegis: tap the "+" button &rarr; "Scan a QR code".
+                </div>
+                <div id="mfa-qr-container" style="background:#fff; padding:1rem; display:inline-block; border-radius:4px;">
+                    <canvas id="mfa-qr-canvas"></canvas>
+                </div>
+                <div class="hint" style="margin:0.75rem 0 0.25rem;">
+                    Can't scan? Enter this key manually (Aegis: "+" &rarr; "Enter secret manually"):
+                </div>
+                <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.75rem;">
+                    <code id="mfa-manual-secret" style="background:#0d0b0a; border:1px solid var(--border); padding:0.5rem 0.75rem; border-radius:3px; letter-spacing:0.08em; word-break:break-all;"></code>
+                    <button id="mfa-copy-secret" onclick="copyMfaSecret()">Copy</button>
+                </div>
+                <div class="inline-form">
+                    <input id="mfa-verify-code" placeholder="6-digit code" maxlength="6" inputmode="numeric">
+                    <button onclick="confirmMfaSetup()">Confirm &amp; Enable</button>
+                    <button onclick="cancelMfaSetup()" style="background:transparent; border-color:var(--border); color:var(--text-dim);">Cancel</button>
+                </div>
+            </div>
+
+            <div id="mfa-result" style="color:var(--blood-bright); margin-top:0.5rem; font-size:0.85rem;"></div>
         </div>
 
         <div class="panel">
