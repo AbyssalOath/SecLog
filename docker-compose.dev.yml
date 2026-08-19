@@ -19,7 +19,7 @@ services:
       retries: 5
  
   app:
-    image: ghcr.io/lordsodomiser/seclog:latest
+    image: ghcr.io/lordsodomiser/seclog:dev
     container_name: seclog-app
     restart: unless-stopped
     depends_on:
