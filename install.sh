@@ -126,7 +126,7 @@ else
         DEV_DB_PASS=$(openssl rand -hex 24)
 
         echo ""
-        read -rp "Frontend URL for the dev instance (e.g. https://dev.seclog.example.com): " dev_frontend_origin
+        read -rp "Frontend URL for the dev instance (e.g. https://seclog-dev.example.com): " dev_frontend_origin
 
         if [ -z "$dev_frontend_origin" ]; then
             echo "No URL given -- skipping dev environment setup. You can add"
