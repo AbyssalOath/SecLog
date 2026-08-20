@@ -45,9 +45,9 @@ fn rules() -> &'static Vec<Rule> {
             // res=success from res=failed on the same event type matters --
             // treating them identically was leaving failed logins misclassified
             // as "Unclassified" alongside routine session teardown noise.
-            Rule { pattern: Regex::new(r"(?=.*type=USER_LOGIN)(?=.*res=failed)").unwrap(), severity: Severity::Medium, label: "Failed login (audit)" },
-            Rule { pattern: Regex::new(r"(?=.*type=USER_LOGIN)(?=.*res=success)").unwrap(), severity: Severity::Low, label: "Successful login (audit)" },
-            Rule { pattern: Regex::new(r"(?=.*type=CRYPTO_KEY_USER)(?=.*res=success)").unwrap(), severity: Severity::Low, label: "SSH session key teardown (routine)" },
+            Rule { pattern: Regex::new(r"type=USER_LOGIN.*res=failed").unwrap(), severity: Severity::Medium, label: "Failed login (audit)" },
+            Rule { pattern: Regex::new(r"type=USER_LOGIN.*res=success").unwrap(), severity: Severity::Low, label: "Successful login (audit)" },
+            Rule { pattern: Regex::new(r"type=CRYPTO_KEY_USER.*res=success").unwrap(), severity: Severity::Low, label: "SSH session key teardown (routine)" },
             Rule { pattern: Regex::new(r"type=CRYPTO_KEY_USER").unwrap(), severity: Severity::Low, label: "SSH crypto key event" },
             Rule { pattern: Regex::new(r"type=USER_START").unwrap(), severity: Severity::Low, label: "Session started (audit)" },
             Rule { pattern: Regex::new(r"type=USER_END").unwrap(), severity: Severity::Low, label: "Session ended (audit)" },
