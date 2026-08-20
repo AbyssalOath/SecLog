@@ -106,6 +106,46 @@ EOF
         echo "for login to work."
     fi
 fi
+
+# --- Optional: dev environment variables ---
+# Same idempotent pattern as FRONTEND_ORIGIN/COMPOSE_PROFILES above --
+# safe to run on a fresh .env or one that already has these. Only needed
+# if you're running docker-compose.dev.yml alongside the main stack.
+if grep -q "^DEV_DB_ROOT_PASS=" .env 2>/dev/null; then
+    echo "Dev environment variables already recorded in .env -- skipping prompt."
+else
+    echo ""
+    echo "Set up a separate dev environment too? This adds DEV_ variables"
+    echo "to .env for use with docker-compose.dev.yml -- a second app +"
+    echo "database stack, isolated from your main install."
+    read -rp "Set up dev environment variables? [y/N]: " setup_dev
+
+    if [ "$setup_dev" = "y" ] || [ "$setup_dev" = "Y" ]; then
+        echo "Generating dev secrets..."
+        DEV_DB_ROOT_PASS=$(openssl rand -hex 24)
+        DEV_DB_PASS=$(openssl rand -hex 24)
+
+        echo ""
+        read -rp "Frontend URL for the dev instance (e.g. https://dev.seclog.example.com): " dev_frontend_origin
+
+        if [ -z "$dev_frontend_origin" ]; then
+            echo "No URL given -- skipping dev environment setup. You can add"
+            echo "the DEV_ variables to .env manually later if you change your mind."
+        else
+            cat >> .env << EOF
+DEV_DB_ROOT_PASS=${DEV_DB_ROOT_PASS}
+DEV_DB_NAME=seclog_dev
+DEV_DB_USER=seclog_dev_user
+DEV_DB_PASS=${DEV_DB_PASS}
+DEV_FRONTEND_ORIGIN=${dev_frontend_origin}
+EOF
+            echo "Dev environment variables added to .env."
+            echo "Start it with: docker compose -f docker-compose.dev.yml up -d --build"
+        fi
+    else
+        echo "Skipping dev environment setup."
+    fi
+fi
  
 # --- Build and start ---
 echo ""

@@ -115,26 +115,24 @@ struct AppState {
 
 async fn create_log(
     State(state): State<AppState>,
+    agent: AgentAuth,
     Json(payload): Json<NewLogEntry>,
 ) -> Result<StatusCode, StatusCode> {
     if !payload.is_valid() {
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let combined = format!("{}{}{}{}", payload.severity, payload.user, payload.message, payload.host);
+    let combined = format!("{}{}{}{}", payload.severity, payload.user, payload.message, agent.hostname);
     let hash = parser::hash_line(&combined);
 
-    match db::insert_log(&state.pool, &payload.severity, &payload.user, &payload.message, &payload.host, &hash)
+    match db::insert_log(&state.pool, &payload.severity, &payload.user, &payload.message, &agent.hostname, &hash)
         .await
     {
         Ok(true) => {
-            // Fire-and-forget: never blocks the shipper's HTTP response,
-            // and a slow/unreachable notification channel must never make
-            // log ingestion itself slow.
             let pool = state.pool.clone();
             let severity = payload.severity.clone();
             let message = payload.message.clone();
-            let host = payload.host.clone();
+            let host = agent.hostname.clone();
             tokio::spawn(async move {
                 notify::trigger_alert(&pool, &severity, &message, &host).await;
             });

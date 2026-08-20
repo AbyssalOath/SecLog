@@ -1,17 +1,19 @@
+name: seclog-dev
+
 services:
   mariadb:
     image: mariadb:11
     container_name: seclog-dev-db
     restart: unless-stopped
     environment:
-      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASS}
-      MARIADB_DATABASE: ${DB_NAME}
-      MARIADB_USER: ${DB_USER}
-      MARIADB_PASSWORD: ${DB_PASS}
+      MARIADB_ROOT_PASSWORD: ${DEV_DB_ROOT_PASS}
+      MARIADB_DATABASE: ${DEV_DB_NAME}
+      MARIADB_USER: ${DEV_DB_USER}
+      MARIADB_PASSWORD: ${DEV_DB_PASS}
     ports:
       - "3307:3306"
     volumes:
-      - seclog_db_data:/var/lib/mysql
+      - seclog_dev_db_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
@@ -30,8 +32,8 @@ services:
       # inside Docker's internal network, containers reach each other by
       # service name, not localhost. This is an important shift from how
       # your Rust binary connected to it during local (non-Docker) testing.
-      DATABASE_URL: mysql://${DB_USER}:${DB_PASS}@mariadb:3306/${DB_NAME}
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN}
+      DATABASE_URL: mysql://${DEV_DB_USER}:${DEV_DB_PASS}@mariadb:3306/${DEV_DB_NAME}
+      FRONTEND_ORIGIN: ${DEV_FRONTEND_ORIGIN}
     ports:
       - "3001:3000"
     healthcheck:
