@@ -12,6 +12,7 @@ use seclog::{
     db,
     models,
     parser,
+    notify,
 };
 use std::{env, sync::Arc};
 use tower_http::cors::CorsLayer;
@@ -126,7 +127,19 @@ async fn create_log(
     match db::insert_log(&state.pool, &payload.severity, &payload.user, &payload.message, &payload.host, &hash)
         .await
     {
-        Ok(true) => Ok(StatusCode::CREATED),
+        Ok(true) => {
+            // Fire-and-forget: never blocks the shipper's HTTP response,
+            // and a slow/unreachable notification channel must never make
+            // log ingestion itself slow.
+            let pool = state.pool.clone();
+            let severity = payload.severity.clone();
+            let message = payload.message.clone();
+            let host = payload.host.clone();
+            tokio::spawn(async move {
+                notify::trigger_alert(&pool, &severity, &message, &host).await;
+            });
+            Ok(StatusCode::CREATED)
+        }
         Ok(false) => Ok(StatusCode::OK),
         Err(e) => {
             eprintln!("DB error: {}", e);
@@ -852,6 +865,78 @@ async fn update_settings(
     Ok(StatusCode::OK)
 }
 
+async fn list_notification_channels_handler(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> Result<Json<Vec<models::NotificationChannel>>, StatusCode> {
+    match db::list_notification_channels(&state.pool).await {
+        Ok(channels) => Ok(Json(channels)),
+        Err(e) => {
+            eprintln!("DB error: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn create_notification_channel_handler(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Json(payload): Json<models::CreateChannelRequest>,
+) -> Result<StatusCode, StatusCode> {
+    let valid_kinds = ["email", "slack", "discord", "telegram", "ntfy", "webhook"];
+    if !valid_kinds.contains(&payload.kind.as_str()) || payload.name.trim().is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let config_json = serde_json::to_string(&payload.config)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    match db::create_notification_channel(&state.pool, &payload.kind, &payload.name, &config_json, &payload.min_severity).await {
+        Ok(_) => Ok(StatusCode::CREATED),
+        Err(e) => {
+            eprintln!("DB error: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn delete_notification_channel_handler(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Path(id): Path<i32>,
+) -> Result<StatusCode, StatusCode> {
+    match db::delete_notification_channel(&state.pool, id).await {
+        Ok(_) => Ok(StatusCode::NO_CONTENT),
+        Err(e) => {
+            eprintln!("DB error: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn test_notification_channel_handler(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Path(id): Path<i32>,
+) -> Result<StatusCode, StatusCode> {
+    let channel = match db::get_channel_by_id(&state.pool, id).await {
+        Ok(Some(c)) => c,
+        Ok(None) => return Err(StatusCode::NOT_FOUND),
+        Err(e) => {
+            eprintln!("DB error: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    match notify::dispatch(&channel, "Medium", "This is a test alert from SecLog.", "test-host").await {
+        Ok(_) => Ok(StatusCode::OK),
+        Err(e) => {
+            eprintln!("notify test failed: {}", e);
+            Err(StatusCode::BAD_GATEWAY) // distinguishes "channel unreachable" from a server bug
+        }
+    }
+}
+
 struct AgentAuth {
     agent_id: i32,
     #[allow(dead_code)]
@@ -1225,6 +1310,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     db::init_agents_schema(&pool).await?;
     db::init_watched_paths_schema(&pool).await?;
     db::init_enrollment_schema(&pool).await?;
+    db::init_notifications_schema(&pool).await?;
 
     let state = AppState {
         pool,
@@ -1310,6 +1396,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/agents/{agent_id}", axum::routing::delete(delete_agent_handler))
         .route("/agents/{agent_id}/paths", get(list_watched_paths).post(add_watched_path_handler))
         .route("/agents/ping", get(agent_ping))
+        .route("/notifications", get(list_notification_channels_handler).post(create_notification_channel_handler))
+        .route("/notifications/{id}", axum::routing::delete(delete_notification_channel_handler))
+        .route("/notifications/{id}/test", post(test_notification_channel_handler))
         .route("/health", get(health))
         .route("/logout", post(logout))
         .route("/paths/{path_id}", axum::routing::delete(delete_watched_path_handler))

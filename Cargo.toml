@@ -1,6 +1,6 @@
 [package]
 name = "seclog"
-version = "0.1.2"
+version = "0.1.25"
 edition = "2024"
 
 [dependencies]
@@ -10,6 +10,7 @@ axum-extra = { version = "0.12.6", features = ["cookie"] }
 chrono = { version = "0.4.45", features = ["serde"] }
 dotenvy = "0.15.7"
 hostname = "0.4.2"
+lettre = { version = "0.11", default-features = false, features = ["tokio1", "tokio1-rustls-tls", "smtp-transport", "builder"] }
 rand = { version = "0.10.2", features = ["std"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 regex = "1.13.1"
@@ -17,8 +18,8 @@ reqwest = { version = "0.13.4", features = ["json"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11.0"
-sqlx = { version = "0.9.0", features = ["runtime-tokio", "mysql", "chrono"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "mysql", "chrono", "tls-rustls-ring-webpki", "derive"] }
 time = "0.3"
 tokio = { version = "1.53.1", features = ["full"] }
-tower-http = { version = "0.7.0", features = ["cors", "fs", "set-header"] }
 totp-rs = { version = "5.7", features = ["gen_secret", "otpauth"] }
+tower-http = { version = "0.7.0", features = ["cors", "fs", "set-header"] }

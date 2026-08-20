@@ -101,9 +101,40 @@
     </div>
 
     <div id="tab-alerts" style="display:none;">
-        <div class="panel">
-            <h2>Webhooks &amp; Email</h2>
-            <div class="panel-desc">Not implemented yet — requires storing endpoint/SMTP config and wiring trigger points.</div>
-        </div>
+    	<div class="panel">
+            <h2>Add Notification Channel</h2>
+            <div class="panel-desc">Fires whenever a new detection reaches this severity or higher.</div>
+
+            <div class="inline-form">
+            	<input id="channel-name" placeholder="Channel name (e.g. Ops Slack)">
+            	<select id="channel-kind" onchange="renderChannelFields()">
+                    <option value="email">Email (SMTP)</option>
+                    <option value="slack">Slack</option>
+                    <option value="discord">Discord</option>
+                    <option value="telegram">Telegram</option>
+                    <option value="ntfy">ntfy</option>
+                    <option value="webhook">Generic Webhook</option>
+            	</select>
+            	<select id="channel-min-severity">
+                    <option value="Low">Low and above</option>
+                    <option value="Medium" selected>Medium and above</option>
+                    <option value="High">High and above</option>
+                    <option value="Critical">Critical only</option>
+            	</select>
+            </div>
+
+            <div id="channel-fields"></div>
+
+            <button onclick="createNotificationChannel()">Add Channel</button>
+            <div id="channel-result"></div>
+    	</div>
+
+    	<div class="panel">
+            <h2>Channels</h2>
+            <table>
+            	<thead><tr><th>Name</th><th>Kind</th><th>Min Severity</th><th></th><th></th></tr></thead>
+            	<tbody id="channel-rows"></tbody>
+            </table>
+    	</div>
     </div>
 </div>
