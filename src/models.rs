@@ -166,3 +166,60 @@ pub struct SelfRegisterRequest {
     pub enrollment_token: String,
     pub hostname: String,
 }
+
+#[derive(Debug, sqlx::FromRow, Serialize)]
+pub struct NotificationChannel {
+    pub id: i32,
+    pub kind: String,
+    pub name: String,
+    pub config: String, // raw JSON string; parsed per-kind only in notify.rs
+    pub min_severity: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateChannelRequest {
+    pub kind: String,
+    pub name: String,
+    pub config: serde_json::Value, // accepted as arbitrary JSON, re-serialized to String for storage
+    pub min_severity: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EmailConfig {
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    pub username: String,
+    pub password: String,
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SlackConfig {
+    pub webhook_url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DiscordConfig {
+    pub webhook_url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TelegramConfig {
+    pub bot_token: String,
+    pub chat_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NtfyConfig {
+    pub server_url: String,
+    pub topic: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GenericWebhookConfig {
+    pub url: String,
+    #[serde(default)]
+    pub headers: std::collections::HashMap<String, String>,
+}
