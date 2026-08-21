@@ -1207,6 +1207,21 @@ if ! file /tmp/seclog-shipper | grep -q "ELF"; then
 fi
 
 sudo mkdir -p /opt/seclog-shipper
+
+# Reinstall handling: if the service is already running from a previous
+# enrollment, its in-memory api_key was read from .seclog_agent_key at
+# ITS OWN startup -- deleting the file alone wouldn't affect the process
+# that's already running, since it never re-reads the file after boot.
+# Stop it first, THEN remove the stale key, so the fresh enrollment token
+# entered below is what actually gets used once the service starts back up.
+if systemctl is-active --quiet seclog-shipper 2>/dev/null; then
+    echo "Existing seclog-shipper install detected -- stopping it to re-enroll."
+    sudo systemctl stop seclog-shipper
+fi
+if [ -f /opt/seclog-shipper/.seclog_agent_key ]; then
+    echo "Removing stale agent key from previous enrollment."
+    sudo rm -f /opt/seclog-shipper/.seclog_agent_key
+fi
 sudo mv /tmp/seclog-shipper /opt/seclog-shipper/shipper
 sudo chmod +x /opt/seclog-shipper/shipper
 
@@ -1233,7 +1248,7 @@ EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable seclog-shipper
-sudo systemctl start seclog-shipper
+sudo systemctl restart seclog-shipper
 
 echo "Done. Check status: systemctl status seclog-shipper"
 "#,
