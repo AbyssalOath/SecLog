@@ -415,6 +415,11 @@ function showTab(tab) {
         loadUsersPanel();
         loadMfaStatus();
     }
+
+    if (tab === 'alerts') {
+    	loadNotificationChannels();
+    	renderChannelFields();
+    }
 }
 
 async function loadUsersPanel() {
@@ -765,4 +770,132 @@ async function copyMfaSecret() {
     } catch (e) {
         // Clipboard API unavailable -- the key is still visible to select and copy manually.
     }
+}
+
+// ---------- Notifications ----------
+const CHANNEL_FIELD_DEFS = {
+    email: [
+        { key: 'smtp_host', placeholder: 'SMTP host (e.g. smtp.gmail.com)' },
+        { key: 'smtp_port', placeholder: 'SMTP port (e.g. 587)', type: 'number' },
+        { key: 'username', placeholder: 'SMTP username' },
+        { key: 'password', placeholder: 'SMTP password', type: 'password' },
+        { key: 'from', placeholder: 'From address' },
+        { key: 'to', placeholder: 'To address' },
+    ],
+    slack: [{ key: 'webhook_url', placeholder: 'Slack webhook URL' }],
+    discord: [{ key: 'webhook_url', placeholder: 'Discord webhook URL' }],
+    telegram: [
+        { key: 'bot_token', placeholder: 'Bot token' },
+        { key: 'chat_id', placeholder: 'Chat ID' },
+    ],
+    ntfy: [
+        { key: 'server_url', placeholder: 'ntfy server URL (e.g. https://ntfy.sh)' },
+        { key: 'topic', placeholder: 'Topic' },
+    ],
+    webhook: [{ key: 'url', placeholder: 'Webhook URL' }],
+};
+
+function renderChannelFields() {
+    const kind = document.getElementById('channel-kind').value;
+    const container = document.getElementById('channel-fields');
+    container.innerHTML = '';
+
+    for (const field of CHANNEL_FIELD_DEFS[kind]) {
+        const input = document.createElement('input');
+        input.id = `channel-field-${field.key}`;
+        input.placeholder = field.placeholder;
+        input.type = field.type || 'text';
+        container.appendChild(input);
+    }
+}
+
+async function loadNotificationChannels() {
+    const response = await authFetch('/notifications');
+    if (!response.ok) return;
+    const channels = await response.json();
+
+    const tbody = document.getElementById('channel-rows');
+    tbody.innerHTML = '';
+
+    for (const ch of channels) {
+        const row = document.createElement('tr');
+
+        const nameCell = document.createElement('td');
+        nameCell.textContent = ch.name;
+        const kindCell = document.createElement('td');
+        kindCell.textContent = ch.kind;
+        const sevCell = document.createElement('td');
+        sevCell.textContent = ch.min_severity;
+
+        const testCell = document.createElement('td');
+        const testBtn = document.createElement('button');
+        testBtn.textContent = 'Test';
+        testBtn.onclick = () => testNotificationChannel(ch.id, testBtn);
+        testCell.appendChild(testBtn);
+
+        const deleteCell = document.createElement('td');
+        const delBtn = document.createElement('button');
+        delBtn.textContent = 'Remove';
+        delBtn.onclick = () => deleteNotificationChannel(ch.id);
+        deleteCell.appendChild(delBtn);
+
+        row.appendChild(nameCell);
+        row.appendChild(kindCell);
+        row.appendChild(sevCell);
+        row.appendChild(testCell);
+        row.appendChild(deleteCell);
+        tbody.appendChild(row);
+    }
+}
+
+async function createNotificationChannel() {
+    const name = document.getElementById('channel-name').value.trim();
+    const kind = document.getElementById('channel-kind').value;
+    const minSeverity = document.getElementById('channel-min-severity').value;
+
+    if (!name) {
+        document.getElementById('channel-result').innerText = 'Channel name is required.';
+        return;
+    }
+
+    const config = {};
+    for (const field of CHANNEL_FIELD_DEFS[kind]) {
+        const el = document.getElementById(`channel-field-${field.key}`);
+        let value = el.value;
+        if (field.type === 'number') value = parseInt(value, 10) || 0;
+        config[field.key] = value;
+    }
+
+    const response = await authFetch('/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, name, config, min_severity: minSeverity })
+    });
+
+    if (response.ok) {
+        document.getElementById('channel-result').innerText = 'Channel added.';
+        document.getElementById('channel-name').value = '';
+        loadNotificationChannels();
+    } else {
+        document.getElementById('channel-result').innerText = 'Failed: ' + response.status;
+    }
+}
+
+async function deleteNotificationChannel(id) {
+    if (!confirm('Remove this notification channel?')) return;
+    const response = await authFetch(`/notifications/${id}`, { method: 'DELETE' });
+    if (response.ok) loadNotificationChannels();
+    else alert('Failed to remove channel: ' + response.status);
+}
+
+async function testNotificationChannel(id, btn) {
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = 'Sending...';
+
+    const response = await authFetch(`/notifications/${id}/test`, { method: 'POST' });
+
+    btn.disabled = false;
+    btn.textContent = response.ok ? 'Sent!' : 'Failed';
+    setTimeout(() => { btn.textContent = original; }, 2000);
 }

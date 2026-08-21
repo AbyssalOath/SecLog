@@ -807,3 +807,109 @@ pub async fn consume_enrollment_token(
 
     Ok(result.rows_affected() > 0)
 }
+
+pub async fn init_notifications_schema(pool: &DbPool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS notification_channels (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            kind VARCHAR(20) NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            config TEXT NOT NULL,
+            min_severity VARCHAR(10) NOT NULL DEFAULT 'Medium',
+            enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )",
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn create_notification_channel(
+    pool: &DbPool,
+    kind: &str,
+    name: &str,
+    config_json: &str,
+    min_severity: &str,
+) -> Result<i32, sqlx::Error> {
+    let result = sqlx::query(
+        "INSERT INTO notification_channels (kind, name, config, min_severity) VALUES (?, ?, ?, ?)",
+    )
+    .bind(kind)
+    .bind(name)
+    .bind(config_json)
+    .bind(min_severity)
+    .execute(pool)
+    .await?;
+    Ok(result.last_insert_id() as i32)
+}
+
+pub async fn list_notification_channels(
+    pool: &DbPool,
+) -> Result<Vec<crate::models::NotificationChannel>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT id, kind, name, config, min_severity, enabled FROM notification_channels ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn delete_notification_channel(pool: &DbPool, id: i32) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM notification_channels WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn set_channel_enabled(pool: &DbPool, id: i32, enabled: bool) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE notification_channels SET enabled = ? WHERE id = ?")
+        .bind(enabled)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn get_channel_by_id(
+    pool: &DbPool,
+    id: i32,
+) -> Result<Option<crate::models::NotificationChannel>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT id, kind, name, config, min_severity, enabled FROM notification_channels WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+}
+
+// Returns every enabled channel whose min_severity is at or below the
+// given severity -- i.e. "would this channel want to hear about an event
+// of this severity." Ranking done in Rust (not SQL) since it's the same
+// small fixed scale used everywhere else in this codebase (parser.rs's
+// Severity enum, the dashboard's SEVERITY_RANK on the frontend).
+pub async fn get_enabled_channels_for_severity(
+    pool: &DbPool,
+    severity: &str,
+) -> Result<Vec<crate::models::NotificationChannel>, sqlx::Error> {
+    fn rank(s: &str) -> u8 {
+        match s {
+            "Critical" => 3,
+            "High" => 2,
+            "Medium" => 1,
+            _ => 0, // Low, and anything unrecognized
+        }
+    }
+
+    let all: Vec<crate::models::NotificationChannel> = sqlx::query_as(
+        "SELECT id, kind, name, config, min_severity, enabled FROM notification_channels WHERE enabled = TRUE",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let event_rank = rank(severity);
+    Ok(all
+        .into_iter()
+        .filter(|c| event_rank >= rank(&c.min_severity))
+        .collect())
+}
