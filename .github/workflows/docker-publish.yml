@@ -40,5 +40,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/lordsodomiser/seclog:${{ steps.version.outputs.version }}
-            ghcr.io/lordsodomiser/seclog:${{ steps.floating.outputs.tag }}
+            ghcr.io/abyssaloath/seclog:${{ steps.version.outputs.version }}
+            ghcr.io/abyssaloath/seclog:${{ steps.floating.outputs.tag }}

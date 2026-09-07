@@ -50,7 +50,7 @@ async fn check_latest_version() -> Option<String> {
         .ok()?;
 
     let resp = client
-        .get("https://api.github.com/repos/LordSodomiser/SecLog/releases/latest")
+        .get("https://api.github.com/repos/AbyssalOath/SecLog/releases/latest")
         .header("User-Agent", "seclog") // GitHub's API requires a User-Agent header
         .send()
         .await
@@ -1192,7 +1192,7 @@ set -e
 
 echo "Installing Seclog shipper..."
 
-curl -fsSL "https://github.com/LordSodomiser/SecLog/releases/latest/download/shipper-linux-x86_64" \
+curl -fsSL "https://github.com/AbyssalOath/SecLog/releases/latest/download/shipper-linux-x86_64" \
     -o /tmp/seclog-shipper
 
 # -f makes curl fail loudly (non-zero exit) on a 404/error instead of
@@ -1269,7 +1269,7 @@ async fn windows_install_script(headers: HeaderMap) -> impl axum::response::Into
 
 Write-Host "Installing Seclog shipper..."
 
-Invoke-WebRequest -Uri "https://github.com/LordSodomiser/SecLog/releases/latest/download/shipper-windows-x86_64.exe" -OutFile "C:\seclog-shipper.exe"
+Invoke-WebRequest -Uri "https://github.com/AbyssalOath/SecLog/releases/latest/download/shipper-windows-x86_64.exe" -OutFile "C:\seclog-shipper.exe"
 
 $bytes = Get-Content "C:\seclog-shipper.exe" -Encoding Byte -TotalCount 2
 if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {{
