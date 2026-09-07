@@ -19,7 +19,7 @@ central web dashboard with role-based access control.
 Requires Docker + Docker Compose.
 
 ```bash
-git clone https://github.com/LordSodomiser/SecLog.git
+git clone https://github.com/AbyssalOath/SecLog.git
 cd SecLog
 ./install.sh
 ```
