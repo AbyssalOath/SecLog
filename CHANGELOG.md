@@ -8,6 +8,28 @@ the Git tags (`vX.Y.Z`) that trigger shipper release builds.
 
 ## [Unreleased]
 
+### Security
+
+- **`russh` 0.54.5 → 0.63.3** (and its `russh-cryptovec` dependency
+  0.52.0 → 0.62.0), resolving 12 GitHub-reported advisories (2 high,
+  10 moderate) in the SSH client used by Archival Storage's SFTP
+  backend: pre-auth DoS via unbounded allocation in keyboard-interactive
+  auth, allocation-first message-field parsing, unbounded
+  post-decompression packet size, unchecked `CryptoVec` growth, several
+  pre/post-auth panics (X25519 `clone_from_slice`, all-zero Curve25519
+  `encode_mpint`, >130 pty-req terminal-mode records), and a few others.
+  None were independently confirmed exploitable against SecLog's usage
+  (client-only, connecting outbound to an admin-configured SFTP target,
+  not accepting inbound SSH connections), but there's no reason to run
+  vulnerable code when a compatible fix exists. One source change
+  required: `SftpClient::check_server_key`'s parameter type changed
+  from `PublicKey` to `PublicKeyOrCertificate` (russh 0.63 lets a server
+  present an OpenSSH certificate instead of a bare key during the
+  handshake) — behavior unchanged, still accepts unconditionally (see
+  ARCHITECTURE.md on why host-key verification isn't implemented yet).
+  Re-verified live: SFTP password auth, a bad-credential failure path,
+  and server stability all confirmed working post-upgrade.
+
 ### Added
 
 - **Display timezone**: Settings → **Preferences** lets you pick the
