@@ -84,7 +84,11 @@ impl russh::client::Handler for SftpClient {
     type Error = russh::Error;
 
     // See the module comment: no host-key verification in this pass.
-    async fn check_server_key(&mut self, _server_public_key: &russh::keys::PublicKey) -> Result<bool, Self::Error> {
+    // (russh 0.63 widened this parameter from a plain PublicKey to
+    // PublicKeyOrCertificate, since the server side of a handshake can
+    // now present an OpenSSH certificate instead of a bare key -- we
+    // still accept unconditionally either way.)
+    async fn check_server_key(&mut self, _server_public_key: &russh::keys::PublicKeyOrCertificate) -> Result<bool, Self::Error> {
         Ok(true)
     }
 }
