@@ -600,11 +600,11 @@ async fn change_password(
     // Rotate the session: the old token stays valid until this point, so
     // password compromise + change wouldn't actually kick out an attacker
     // holding the old cookie unless we explicitly invalidate it here.
-    if let Some(old_cookie) = jar.get("__Host-seclog_session") {
-        if let Err(e) = db::delete_session(&state.pool, old_cookie.value()).await {
-            eprintln!("DB error: {}", e);
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
+    if let Some(old_cookie) = jar.get("__Host-seclog_session")
+        && let Err(e) = db::delete_session(&state.pool, old_cookie.value()).await
+    {
+        eprintln!("DB error: {}", e);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     let new_token = auth::generate_session_token();

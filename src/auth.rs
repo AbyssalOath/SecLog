@@ -23,6 +23,12 @@ pub struct LoginRateLimiter {
 const MAX_ATTEMPTS: usize = 5;
 const WINDOW: Duration = Duration::from_secs(15 * 60); // 15 minutes
 
+impl Default for LoginRateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LoginRateLimiter {
     pub fn new() -> Self {
         LoginRateLimiter {
@@ -35,7 +41,7 @@ impl LoginRateLimiter {
         let mut attempts = self.attempts.lock().unwrap();
         let now = Instant::now();
 
-        let entry = attempts.entry(username.to_string()).or_insert_with(Vec::new);
+        let entry = attempts.entry(username.to_string()).or_default();
         // Drop attempts older than the window -- only recent failures count.
         entry.retain(|&t| now.duration_since(t) < WINDOW);
 
@@ -45,7 +51,7 @@ impl LoginRateLimiter {
     // Call this after a failed password check.
     pub fn record_failure(&self, username: &str) {
         let mut attempts = self.attempts.lock().unwrap();
-        attempts.entry(username.to_string()).or_insert_with(Vec::new).push(Instant::now());
+        attempts.entry(username.to_string()).or_default().push(Instant::now());
     }
 
     // Call this after a successful login -- clears their slate
@@ -137,7 +143,7 @@ pub fn generate_mfa_secret_hex() -> Result<String, String> {
 }
 
 fn mfa_secret_from_hex(hex: &str) -> Option<Vec<u8>> {
-    if hex.is_empty() || hex.len() % 2 != 0 {
+    if hex.is_empty() || !hex.len().is_multiple_of(2) {
         return None;
     }
     (0..hex.len())

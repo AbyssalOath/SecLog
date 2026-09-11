@@ -527,15 +527,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                         // Start watching anything new.
                         for path in desired {
-                            if !active.contains_key(&path) {
-                                let p = path.clone();
+                            if let std::collections::hash_map::Entry::Vacant(e) = active.entry(path) {
+                                let p = e.key().clone();
                                 let logs_url_clone = logs_url.clone();
                                 let api_key_clone = api_key.clone();
                                 let host_clone = hostname.clone();
                                 let handle = tokio::spawn(async move {
                                     watch_file(p, logs_url_clone, api_key_clone, host_clone).await;
                                 });
-                                active.insert(path, handle);
+                                e.insert(handle);
                             }
                         }
                     }

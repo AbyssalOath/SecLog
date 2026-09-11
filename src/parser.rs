@@ -133,10 +133,10 @@ fn extract_user(line: &str) -> String {
     });
 
     for re in patterns {
-        if let Some(caps) = re.captures(line) {
-            if let Some(m) = caps.get(1) {
-                return m.as_str().to_string();
-            }
+        if let Some(caps) = re.captures(line)
+            && let Some(m) = caps.get(1)
+        {
+            return m.as_str().to_string();
         }
     }
 
