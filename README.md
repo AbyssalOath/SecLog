@@ -14,6 +14,12 @@ central web dashboard with role-based access control.
   one-time token, auto-detects its hostname, and watches configured log
   sources, shipping classified events back to the server over HTTPS/HTTP.
 
+For how the pieces fit together in more detail, see
+[ARCHITECTURE.md](ARCHITECTURE.md). Contributing a change?
+[CONTRIBUTING.md](CONTRIBUTING.md). Found a security issue?
+[SECURITY.md](SECURITY.md) — please don't file it as a public issue.
+Release history lives in [CHANGELOG.md](CHANGELOG.md).
+
 ## Server installation
 
 Requires Docker + Docker Compose.
