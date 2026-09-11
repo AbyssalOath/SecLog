@@ -379,15 +379,19 @@ served directly by axum's `ServeDir` fallback.
   directly.
 - **`app.js`** — everything else: dashboard rendering (with per-row
   review controls), the Agents page (enrollment, path management), the
-  Directory page (LDAP config, discovered-host table, per-host
-  enrollment token generation, deployment packages), the Syslog page
-  (receiver enable/allowlist), the Audit Log page (activity table,
-  chain verification, checkpoint status — `AuditAccess`-gated, not
-  admin-only, unlike the rest), Settings (general/security/alerts tabs
-  — the latter now also correlation rules, general now also archival
-  storage), all built with `document.createElement` rather than
-  `innerHTML` for anything containing server- or directory-supplied
-  text.
+  Syslog page (receiver enable/allowlist), the Audit Log page (activity
+  table, chain verification, checkpoint status — `AuditAccess`-gated,
+  not admin-only, unlike the rest), and Settings — preferences (display
+  timezone, `AuditAccess`-gated like the Audit Log page, not admin-only:
+  it's a personal display setting, not administration) plus four
+  admin-only tabs: general (now also archival storage), security,
+  alerts (now also correlation rules), and directory (LDAP config,
+  discovered-host table, per-host enrollment token generation,
+  deployment packages — folded in from a standalone page into a
+  Settings tab, since it's exclusively admin configuration like every
+  other Settings tab, not its own navigation-level concern). All built
+  with `document.createElement` rather than `innerHTML` for anything
+  containing server- or directory-supplied text.
 
 ## Persistence
 

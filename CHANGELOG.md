@@ -8,6 +8,34 @@ the Git tags (`vX.Y.Z`) that trigger shipper release builds.
 
 ## [Unreleased]
 
+### Added
+
+- **Display timezone**: Settings → **Preferences** lets you pick the
+  timezone every timestamp in SecLog (Dashboard reviews, Audit Log,
+  Directory, Syslog, Archival Storage) renders in, instead of always
+  using the browser's own system timezone implicitly. Saved per-browser
+  (`localStorage`), not on the account, so it needs no admin-gated API
+  and is available to every role that can reach Settings at all.
+  (`app.js`'s new `formatTimestamp`, replacing the old
+  `formatDirectoryTimestamp` and every ad hoc `toLocaleString()` call)
+
+### Changed
+
+- **Directory moved into Settings**: what was a standalone top-level
+  **Directory** nav page is now the **Settings → Directory** tab —
+  it's exclusively admin configuration (LDAP connection, directory
+  login, deployment packages, discovered hosts), same as every other
+  Settings tab, not its own navigation-level concern. No functional
+  change: every panel, field, and button works exactly as before, just
+  relocated. Existing bookmarks/links to `#/directory` no longer
+  resolve — use `#/settings` and select the Directory tab.
+- **Settings is no longer admin-only as a whole page**: an `auditor`
+  account can now open Settings to reach the new Preferences tab (its
+  timezone), but still sees none of the admin-only tabs (General,
+  Security, Alerts, Directory) — those, and everything they configure,
+  remain `AdminUser`-gated exactly as before. A plain `user` account
+  still can't open Settings at all.
+
 ## [0.2.0] - 2026-09-11
 
 ### Added

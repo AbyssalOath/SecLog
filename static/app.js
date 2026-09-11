@@ -210,7 +210,7 @@ function makeReviewCell(log) {
         const meta = document.createElement('div');
         meta.className = 'hint';
         meta.style.margin = '0';
-        meta.textContent = `Last reviewed by ${log.reviewed_by_username} at ${new Date(log.reviewed_at).toLocaleString()}`;
+        meta.textContent = `Last reviewed by ${log.reviewed_by_username} at ${formatTimestamp(log.reviewed_at)}`;
         panel.appendChild(meta);
     }
 
@@ -479,24 +479,86 @@ async function deletePath(pathId) {
 }
 
 // ---------- Directory (LDAP/Active Directory) ----------
-async function initDirectory() {
-    const meResp = await authFetch('/me');
-    const me = await meResp.json();
+// ---------- Timezone preference ----------
+// Per-browser, not per-account (localStorage, not a server-side field on
+// the user) -- this is a display preference, not something that needs to
+// follow someone to a different machine, and it means every account
+// (including a plain "user" role, if one is ever given log access again
+// later) can set it without needing any admin-gated API.
+const TIMEZONE_STORAGE_KEY = 'seclog_timezone';
 
-    if (me.role !== 'admin') {
-        document.getElementById('directory-access-result').innerText = 'Access denied: admin only.';
-        return;
+function getPreferredTimezone() {
+    try {
+        return localStorage.getItem(TIMEZONE_STORAGE_KEY) || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch (e) {
+        // localStorage can throw in a private window with site data
+        // blocked -- fall back to the browser's own zone rather than error.
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
     }
-
-    document.getElementById('directory-content').style.display = 'block';
-    loadDirectoryConfig();
-    loadDirectoryHosts();
-    loadDeploymentTokens();
 }
 
-function formatDirectoryTimestamp(value) {
+// Every timestamp in the app renders through this one function, so
+// changing the preference in Settings -> Preferences immediately
+// affects everywhere a timestamp is shown, not just one page.
+function formatTimestamp(value) {
     if (!value) return 'Never';
-    return new Date(value).toLocaleString();
+    try {
+        return new Date(value).toLocaleString(undefined, { timeZone: getPreferredTimezone() });
+    } catch (e) {
+        return new Date(value).toLocaleString();
+    }
+}
+
+function populateTimezoneOptions() {
+    const select = document.getElementById('preferred-timezone');
+    if (!select || select.options.length) return; // already populated
+
+    let zones;
+    try {
+        zones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : null;
+    } catch (e) {
+        zones = null;
+    }
+    // Older browsers without Intl.supportedValuesOf still get a usable,
+    // if short, list rather than an empty dropdown.
+    if (!zones || !zones.length) {
+        zones = [
+            'UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+            'Europe/London', 'Europe/Berlin', 'Asia/Tokyo', 'Australia/Sydney',
+        ];
+    }
+
+    for (const zone of zones) {
+        const opt = document.createElement('option');
+        opt.value = zone;
+        opt.textContent = zone;
+        select.appendChild(opt);
+    }
+}
+
+function loadTimezonePreference() {
+    const select = document.getElementById('preferred-timezone');
+    if (!select) return;
+    select.value = getPreferredTimezone();
+    updateTimezonePreview();
+}
+
+function saveTimezonePreference() {
+    const select = document.getElementById('preferred-timezone');
+    try {
+        localStorage.setItem(TIMEZONE_STORAGE_KEY, select.value);
+    } catch (e) {
+        // Selection still applies for the rest of this page load via the
+        // <select> itself -- it just won't persist across a reload.
+    }
+    updateTimezonePreview();
+    document.getElementById('preferences-result').innerText = 'Saved -- timestamps across the dashboard now use this timezone.';
+}
+
+function updateTimezonePreview() {
+    const el = document.getElementById('timezone-preview');
+    if (!el) return;
+    el.innerText = 'Right now there: ' + formatTimestamp(new Date().toISOString());
 }
 
 async function loadDirectoryConfig() {
@@ -531,7 +593,7 @@ async function loadDirectoryConfig() {
         const outcome = cfg.last_sync_status === 'ok'
             ? `ok, ${cfg.last_sync_count} host(s) found`
             : `failed`;
-        statusEl.innerText = `Last synced ${formatDirectoryTimestamp(cfg.last_sync_at)} -- ${outcome}.`;
+        statusEl.innerText = `Last synced ${formatTimestamp(cfg.last_sync_at)} -- ${outcome}.`;
     }
 }
 
@@ -643,7 +705,7 @@ async function loadDirectoryHosts() {
         osCell.textContent = host.operating_system || '—';
 
         const seenCell = document.createElement('td');
-        seenCell.textContent = formatDirectoryTimestamp(host.last_seen_in_ad);
+        seenCell.textContent = formatTimestamp(host.last_seen_in_ad);
 
         const statusCell = document.createElement('td');
         const pill = document.createElement('span');
@@ -834,12 +896,12 @@ async function loadDeploymentTokens() {
         usesCell.textContent = `${t.use_count} / ${t.max_uses}`;
 
         const createdCell = document.createElement('td');
-        createdCell.textContent = formatDirectoryTimestamp(t.created_at);
+        createdCell.textContent = formatTimestamp(t.created_at);
 
         const expiresCell = document.createElement('td');
         const expired = t.expires_at && new Date(t.expires_at) <= now;
         expiresCell.textContent = t.expires_at
-            ? formatDirectoryTimestamp(t.expires_at) + (expired ? ' (expired)' : '')
+            ? formatTimestamp(t.expires_at) + (expired ? ' (expired)' : '')
             : 'Never';
 
         const actionCell = document.createElement('td');
@@ -874,28 +936,45 @@ async function revokeDeploymentToken(id) {
 }
 
 // ---------- Settings ----------
+// Preferences (the timezone selector) is a personal display setting, not
+// system administration -- open to any role that can reach Settings at
+// all, unlike every other tab here, which is admin-only. Currently that
+// means admin and auditor (the only two roles CJIS AU-9 leaves with any
+// timestamped data to look at); a plain "user" account still can't get
+// past the page-level check below.
 async function initSettings() {
     const meResp = await authFetch('/me');
     const me = await meResp.json();
 
-    if (me.role !== 'admin') {
-        document.getElementById('settings-access-result').innerText = 'Access denied: admin only.';
+    if (me.role !== 'admin' && me.role !== 'auditor') {
+        document.getElementById('settings-access-result').innerText = 'Access denied: admin or auditor only.';
         return;
     }
 
     document.getElementById('settings-content').style.display = 'block';
-    loadGeneralSettings();
-    loadArchiveConfig();
+
+    const isAdmin = me.role === 'admin';
+    for (const tab of ['general', 'security', 'alerts', 'directory']) {
+        document.getElementById(`tab-link-${tab}`).style.display = isAdmin ? '' : 'none';
+    }
+
+    populateTimezoneOptions();
+    loadTimezonePreference();
+
+    if (isAdmin) {
+        loadGeneralSettings();
+        loadArchiveConfig();
+        showTab('general');
+    } else {
+        showTab('preferences');
+    }
 }
 
 function showTab(tab) {
-    document.getElementById('tab-general').style.display = tab === 'general' ? 'block' : 'none';
-    document.getElementById('tab-security').style.display = tab === 'security' ? 'block' : 'none';
-    document.getElementById('tab-alerts').style.display = tab === 'alerts' ? 'block' : 'none';
-
-    document.getElementById('tab-link-general').classList.toggle('active', tab === 'general');
-    document.getElementById('tab-link-security').classList.toggle('active', tab === 'security');
-    document.getElementById('tab-link-alerts').classList.toggle('active', tab === 'alerts');
+    for (const t of ['preferences', 'general', 'security', 'alerts', 'directory']) {
+        document.getElementById(`tab-${t}`).style.display = t === tab ? 'block' : 'none';
+        document.getElementById(`tab-link-${t}`).classList.toggle('active', t === tab);
+    }
 
     if (tab === 'security') {
         loadUsersPanel();
@@ -907,6 +986,12 @@ function showTab(tab) {
     	renderChannelFields();
     	loadCorrelationLabels();
     	loadCorrelationRules();
+    }
+
+    if (tab === 'directory') {
+        loadDirectoryConfig();
+        loadDirectoryHosts();
+        loadDeploymentTokens();
     }
 }
 
@@ -1182,7 +1267,7 @@ async function loadArchiveConfig() {
         statusEl.innerText = cfg.backend === 'none' ? '' : 'No archive run yet.';
     } else {
         const outcome = cfg.last_archive_status === 'ok' ? `ok, ${cfg.last_archive_count} row(s) archived` : 'failed';
-        statusEl.innerText = `Last archive run ${formatDirectoryTimestamp(cfg.last_archive_at)} -- ${outcome}.`;
+        statusEl.innerText = `Last archive run ${formatTimestamp(cfg.last_archive_at)} -- ${outcome}.`;
     }
 
     renderArchiveFields();
@@ -1294,7 +1379,7 @@ async function loadLogCheckpoints() {
         const row = document.createElement('tr');
 
         const timeCell = document.createElement('td');
-        timeCell.textContent = new Date(cp.computed_at).toLocaleString();
+        timeCell.textContent = formatTimestamp(cp.computed_at);
         const rangeCell = document.createElement('td');
         rangeCell.textContent = `${cp.range_start_id}–${cp.range_end_id}`;
         const countCell = document.createElement('td');
@@ -1327,7 +1412,7 @@ async function loadAuditLog() {
         const row = document.createElement('tr');
 
         const timeCell = document.createElement('td');
-        timeCell.textContent = new Date(entry.occurred_at).toLocaleString();
+        timeCell.textContent = formatTimestamp(entry.occurred_at);
         const actorCell = document.createElement('td');
         actorCell.textContent = entry.actor_username;
         const actionCell = document.createElement('td');
@@ -1762,7 +1847,7 @@ async function loadSyslogConfig() {
 
     const lastEl = document.getElementById('syslog-last-message');
     lastEl.innerText = cfg.last_message_at
-        ? `Last message received ${formatDirectoryTimestamp(cfg.last_message_at)} from ${cfg.last_message_host}.`
+        ? `Last message received ${formatTimestamp(cfg.last_message_at)} from ${cfg.last_message_host}.`
         : 'No messages received yet.';
 }
 
