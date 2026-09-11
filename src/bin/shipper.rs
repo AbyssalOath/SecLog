@@ -18,6 +18,11 @@ struct NewLogEntry {
     user: String,
     message: String,
     host: String,
+    // The line's own timestamp, if parser::parse_line found one --
+    // CJIS AU-8. serde's default DateTime<Utc> serialization is
+    // RFC3339, which the server's chrono/serde stack deserializes
+    // directly, no custom (de)serializer needed on either end.
+    event_time: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -127,6 +132,7 @@ async fn ship_line(client: &reqwest::Client, logs_url: &str, api_key: &str, host
                 user: entry.user,
                 message: entry.message,
                 host: host.to_string(),
+                event_time: entry.event_time,
             };
 
             const MAX_RETRIES: u32 = 3;
@@ -355,11 +361,15 @@ async fn watch_windows_security_log(logs_url: String, api_key: String, host: Str
                     // POST as the file-based path, just built directly here
                     // instead of going through parser::parse_line (Windows
                     // event text doesn't match the Linux/macOS line formats).
+                    // extract_event_time is still reusable standalone, though
+                    // -- wevtutil's text output has its own "Date:" field
+                    // (ISO8601 with a 'Z'), which it already recognizes.
                     let payload = NewLogEntry {
                         severity: severity.to_string(),
                         user: "system".to_string(),
                         message: format!("[{}] EventID={} {}", label, event_id, event_block.trim()),
                         host: host.clone(),
+                        event_time: parser::extract_event_time(event_block),
                     };
 
                     match client

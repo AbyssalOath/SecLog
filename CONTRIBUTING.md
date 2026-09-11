@@ -103,6 +103,34 @@ If you're changing the *meaning* of existing data (not just adding a
 column), see `db::init_schema`'s `level` → `severity` migration for the
 pattern: detect the old shape, migrate it once, log what happened.
 
+## Environment variables
+
+Nobody running `install.sh` should ever have to hand-edit `.env`. If
+your change adds a new environment variable that the server reads
+(directly via `env::var`, or indirectly because it's now in
+`docker-compose.yml`'s `environment:` block):
+
+1. Add it to `docker-compose.yml` (and `docker-compose.dev.yml`, if the
+   dev stack needs it too).
+2. Add a block to `install.sh` that generates it (a secret — follow the
+   `SECLOG_MASTER_KEY`/`DB_PASS` pattern, `openssl rand`) or prompts for
+   it (anything requiring a human decision — follow the
+   `FRONTEND_ORIGIN`/Caddy-choice pattern, `read -rp`). Same idempotent
+   shape as every existing block: check whether it's already in `.env`
+   first, only act if it's missing, so re-running `install.sh` on an
+   existing install is always safe.
+3. If it's optional (most things past the original `DATABASE_URL`/
+   `FRONTEND_ORIGIN` pair should be), read it with `env::var(...).ok()`
+   or similar in Rust, not `.expect(...)` — an existing deployment that
+   never touches your new feature shouldn't fail to boot over it. See
+   `crypto::MasterKey::from_env` for the pattern.
+
+`install.sh` has a safety-net check (search it for "Safety net") that
+warns if `docker-compose.yml`/`docker-compose.dev.yml` reference a
+variable `.env` doesn't have — it exists to catch step 2 being missed,
+not to replace it. A warning during someone's install is a much worse
+experience than the gap never existing.
+
 ## Shipper changes
 
 The shipper runs unattended, on machines you may not be able to easily

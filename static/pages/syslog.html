@@ -1,0 +1,48 @@
+<h1>Syslog</h1>
+<div id="syslog-access-result"></div>
+
+<div id="syslog-content" style="display:none;">
+    <div class="panel">
+        <h2>Syslog Receiver</h2>
+        <div class="panel-desc">
+            Lets firewalls, switches, and other devices that can't run the shipper send logs
+            directly, over UDP and/or TCP port 514. Raw syslog has no per-message
+            authentication -- industry-wide, not specific to SecLog -- so this is gated by a
+            source-IP allowlist: nothing is accepted from an address that isn't listed below,
+            even while enabled.
+        </div>
+
+        <div id="syslog-restart-hint" class="hint" style="color:var(--blood-bright);">
+            Enabling/disabling UDP or TCP here takes effect on the next server restart (this
+            binds a network socket at startup). The allowlist below applies immediately, no
+            restart needed.
+        </div>
+
+        <label class="switch-row" style="max-width:320px;">
+            Accept UDP syslog (port 514)
+            <span class="switch">
+                <input type="checkbox" id="syslog-udp-toggle">
+                <span class="switch-slider"></span>
+            </span>
+        </label>
+        <label class="switch-row" style="max-width:320px;">
+            Accept TCP syslog (port 514)
+            <span class="switch">
+                <input type="checkbox" id="syslog-tcp-toggle">
+                <span class="switch-slider"></span>
+            </span>
+        </label>
+
+        <div class="hint" style="margin-top:0.75rem;">
+            Allowed source IPs/CIDRs, one per line (e.g. <code>10.0.0.0/8</code> or a single
+            <code>192.168.1.50</code>). Empty means nothing is accepted.
+        </div>
+        <textarea id="syslog-allowed-cidrs" style="height:120px; margin-top:0.5rem;" placeholder="10.0.0.0/8&#10;192.168.1.50"></textarea>
+
+        <div class="inline-form" style="margin-top:0.75rem;">
+            <button onclick="saveSyslogConfig()">Save</button>
+        </div>
+        <div id="syslog-config-result" class="hint" style="margin-top:0.5rem;"></div>
+        <div id="syslog-last-message" class="hint"></div>
+    </div>
+</div>

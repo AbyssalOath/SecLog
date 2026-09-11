@@ -1,0 +1,62 @@
+<h1>Audit Log</h1>
+<div id="audit-log-access-result"></div>
+
+<div id="audit-log-content" style="display:none;">
+    <div class="panel">
+        <h2>Activity</h2>
+        <div class="panel-desc">Who did what in SecLog itself -- logins, admin actions, and read access to log data.</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Actor</th>
+                    <th>Action</th>
+                    <th>Resource</th>
+                    <th>Outcome</th>
+                    <th>Source IP</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody id="audit-log-rows"></tbody>
+        </table>
+        <div class="pagination-row">
+            <button id="audit-log-prev" onclick="changeAuditLogPage(-1)">&laquo; Prev</button>
+            <span id="audit-log-page-info"></span>
+            <button id="audit-log-next" onclick="changeAuditLogPage(1)">Next &raquo;</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>Integrity</h2>
+        <div class="panel-desc">
+            This table is hash-chained: every row is cryptographically linked to the one before it, so an
+            altered or removed row breaks the chain from that point on. Verifying re-derives each row's hash
+            from its own stored fields and confirms it matches.
+        </div>
+        <button onclick="verifyAuditChain()">Verify Chain</button>
+        <div id="audit-verify-result" class="hint" style="margin-top:0.5rem;"></div>
+    </div>
+
+    <div class="panel">
+        <h2>Log Storage Checkpoints</h2>
+        <div class="panel-desc">
+            Shipper-ingested logs are too high-volume for a per-row chain, so integrity here works differently:
+            every hour, the hashes of all logs received since the last checkpoint are combined into one
+            checkpoint hash. Re-checking a checkpoint later tells you whether that range still matches --
+            <strong>Unverifiable</strong> means some of those rows are gone (expected once retention reaches
+            them), <strong>Broken</strong> means what's still there doesn't match what was checkpointed.
+        </div>
+        <button onclick="loadLogCheckpoints()">Refresh</button>
+        <table>
+            <thead>
+                <tr>
+                    <th>Computed</th>
+                    <th>Row Range</th>
+                    <th>Rows</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="checkpoint-rows"></tbody>
+        </table>
+    </div>
+</div>

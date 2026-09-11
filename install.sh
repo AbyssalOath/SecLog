@@ -1,6 +1,27 @@
 #!/bin/bash
 set -e  # exit immediately if any command fails, rather than plowing ahead
- 
+
+# This script's job is that nobody who runs it ever has to hand-edit
+# .env -- every variable docker-compose.yml needs either gets generated
+# silently (a secret: DB_ROOT_PASS, DB_PASS, SECLOG_MASTER_KEY, same
+# idea as `openssl rand`) or prompted for (a decision only a human can
+# make: FRONTEND_ORIGIN, the Caddy/reverse-proxy choice). Every block
+# below follows the same idempotent shape: check whether its var(s)
+# already exist in .env, and only generate/prompt if they don't -- safe
+# to re-run install.sh on an existing install, e.g. after pulling a
+# version that adds a new one.
+#
+# Adding a new environment variable that docker-compose.yml needs?
+# 1. Add it to docker-compose.yml's `environment:` block (and
+#    docker-compose.dev.yml's, if the dev stack needs it too).
+# 2. Add a generation-or-prompt block here, following the pattern
+#    above: a secret gets generated silently, anything requiring a
+#    human decision gets a `read -rp` prompt.
+# 3. The check near the end of this script (search for "Safety net")
+#    will catch anything missed here -- but that's a last resort, not
+#    a substitute for step 2. A warning during install is a much worse
+#    experience than never seeing the gap at all.
+
 echo "=== Seclog Installer ==="
  
 # --- Check prerequisites ---
@@ -107,6 +128,20 @@ EOF
     fi
 fi
 
+# --- Directory (LDAP/Active Directory) sync key ---
+# Optional feature, but the key it needs has to exist BEFORE anyone
+# turns it on -- unlike every other secret in this app, the LDAP bind
+# password has to be decrypted back to plaintext on every sync, so it
+# can't just be hashed like a session token or an agent API key. Same
+# idempotent pattern as the blocks above: generated once, left alone on
+# every install.sh re-run after that.
+if grep -q "^SECLOG_MASTER_KEY=" .env 2>/dev/null; then
+    echo "SECLOG_MASTER_KEY already present in .env -- skipping."
+else
+    echo "SECLOG_MASTER_KEY=$(openssl rand -base64 32)" >> .env
+    echo "Generated SECLOG_MASTER_KEY (needed only if you turn on Directory sync)."
+fi
+
 # --- Optional: dev environment variables ---
 # Same idempotent pattern as FRONTEND_ORIGIN/COMPOSE_PROFILES above --
 # safe to run on a fresh .env or one that already has these. Only needed
@@ -147,6 +182,39 @@ EOF
     fi
 fi
  
+# --- Safety net: catch a variable docker-compose.yml expects that .env
+# doesn't have. This exists so that if a future change adds a new
+# ${SOMETHING} to docker-compose.yml's `environment:` block without a
+# matching block above, the gap surfaces here with a clear message --
+# instead of the container silently starting with an empty/wrong value,
+# or a confusing failure the user has to debug on their own. This is a
+# safety net, not a substitute for adding the real prompt/generation
+# step above (see the header comment at the top of this file).
+check_env_vars_present() {
+    local compose_file="$1"
+    local missing=""
+    for var in $(grep -oE '\$\{[A-Z_]+' "$compose_file" | sed 's/\${//' | sort -u); do
+        if ! grep -q "^${var}=" .env 2>/dev/null; then
+            missing="${missing} ${var}"
+        fi
+    done
+    if [ -n "$missing" ]; then
+        echo ""
+        echo "WARNING: ${compose_file} references environment variable(s) not"
+        echo "found in .env:${missing}"
+        echo "Seclog may fail to start, or start misconfigured, until these are"
+        echo "set. Add them to .env manually, or (better) update install.sh to"
+        echo "generate/prompt for them -- see the header comment in install.sh."
+    fi
+}
+
+check_env_vars_present docker-compose.yml
+# Only relevant if dev setup was actually configured -- otherwise this
+# would warn about DEV_* variables that were deliberately skipped above.
+if grep -q "^DEV_DB_ROOT_PASS=" .env 2>/dev/null; then
+    check_env_vars_present docker-compose.dev.yml
+fi
+
 # --- Build and start ---
 echo ""
 echo "Building and starting containers..."

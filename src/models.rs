@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 // Used internally by the CLI parser (parser.rs) -- never sent over the wire
@@ -8,6 +9,11 @@ pub struct LogEntry {
     pub severity: Severity,
     pub user: String,
     pub message: String,
+    // The event's own timestamp, recovered from the raw line where
+    // possible (see parser::extract_event_time) -- distinct from
+    // whenever the server happens to insert the row. None when no
+    // recognized timestamp was found in the source line.
+    pub event_time: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone)]
@@ -25,6 +31,15 @@ pub struct LogRow {
     pub user: String,
     pub message: String,
     pub host: String,
+    // The event's own timestamp if one was recovered from the source
+    // line, distinct from when SecLog ingested it (CJIS AU-8). None
+    // means no recognized timestamp was found -- treat ingestion time
+    // as the best available signal, not an exact one.
+    pub event_time: Option<DateTime<Utc>>,
+    pub review_status: String,
+    pub reviewed_by_username: Option<String>,
+    pub reviewed_at: Option<DateTime<Utc>>,
+    pub review_note: Option<String>,
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
@@ -52,6 +67,16 @@ pub struct PaginatedLogs {
     pub offset: i64,
 }
 
+// CJIS AU-6: marks a log row reviewed/investigated. `status` must be
+// one of "open"/"reviewed"/"false_positive" -- validated in the
+// set_log_review handler, not here.
+#[derive(Debug, Deserialize)]
+pub struct LogReviewRequest {
+    pub status: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
 // What the CLIENT sends us as JSON. severity travels as a plain String
 // ("Low"/"Medium"/"High"/"Critical") -- the Severity enum above is only
 // used internally during file-based parsing, not over HTTP.
@@ -61,6 +86,8 @@ pub struct NewLogEntry {
     pub user: String,
     pub message: String,
     pub host: String,
+    #[serde(default)]
+    pub event_time: Option<DateTime<Utc>>,
 }
 
 impl NewLogEntry {
@@ -167,6 +194,25 @@ pub struct SelfRegisterRequest {
     pub hostname: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DeploymentPackageRequest {
+    #[serde(default)]
+    pub label: Option<String>,
+    pub max_uses: i64,
+    pub expires_days: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DeploymentPackageResponse {
+    pub token_id: i32,
+    // Shown once, same as any other freshly-issued credential -- never
+    // recoverable again after this response (it's stored hashed, like
+    // every other token in this system).
+    pub script: String,
+    pub gpo_instructions: String,
+    pub intune_instructions: String,
+}
+
 #[derive(Debug, sqlx::FromRow, Serialize)]
 pub struct NotificationChannel {
     pub id: i32,
@@ -222,4 +268,74 @@ pub struct GenericWebhookConfig {
     pub url: String,
     #[serde(default)]
     pub headers: std::collections::HashMap<String, String>,
+}
+
+// --- Directory (LDAP/Active Directory) sync ---
+
+#[derive(Debug, Deserialize)]
+pub struct LdapConfigRequest {
+    pub enabled: bool,
+    pub server_uri: String,
+    pub bind_dn: String,
+    // None/omitted leaves the currently-saved password untouched --
+    // same "write-only, shown once" shape as the agent API key. Only a
+    // non-empty value here triggers a re-encrypt-and-store.
+    #[serde(default)]
+    pub bind_password: Option<String>,
+    pub base_dn: String,
+    pub computer_filter: String,
+    pub sync_interval_minutes: i64,
+    // Directory-backed dashboard login (Phase 2) -- same connection,
+    // a second consumer of it. See README: Directory login.
+    pub login_enabled: bool,
+    #[serde(default)]
+    pub user_base_dn: String,
+    #[serde(default)]
+    pub user_filter_template: String,
+    #[serde(default)]
+    pub admin_group_dn: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LdapConfigResponse {
+    pub enabled: bool,
+    pub server_uri: String,
+    pub bind_dn: String,
+    // The bind password itself is never sent back to the browser --
+    // this just tells the UI whether one has been saved, so it can
+    // render "configured" instead of an empty field.
+    pub password_configured: bool,
+    pub base_dn: String,
+    pub computer_filter: String,
+    pub sync_interval_minutes: i64,
+    pub last_sync_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_sync_status: Option<String>,
+    pub last_sync_count: Option<i64>,
+    pub master_key_configured: bool,
+    pub login_enabled: bool,
+    pub user_base_dn: String,
+    pub user_filter_template: String,
+    pub admin_group_dn: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DirectorySyncResponse {
+    pub hosts_found: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DiscoveredHostResponse {
+    pub id: i32,
+    pub hostname: String,
+    pub distinguished_name: String,
+    pub operating_system: Option<String>,
+    pub organizational_unit: Option<String>,
+    pub ad_last_logon: Option<chrono::DateTime<chrono::Utc>>,
+    pub first_seen_at: chrono::DateTime<chrono::Utc>,
+    pub last_seen_in_ad: chrono::DateTime<chrono::Utc>,
+    // Best-effort short-hostname match against `agents` -- see
+    // db::list_discovered_hosts. A hint for the UI, not a guarantee.
+    pub likely_enrolled: bool,
+    pub agent_id: Option<i32>,
+    pub stale: bool,
 }

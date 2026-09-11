@@ -88,6 +88,16 @@ pub fn verify_password(password: &str, stored_hash: &str) -> bool {
         .is_ok()
 }
 
+/// Stored in `users.password_hash` for accounts with `auth_source =
+/// 'ldap'` -- these accounts have no local password at all, so there's
+/// nothing real to hash. This value is deliberately NOT a valid
+/// Argon2-encoded string: if a future bug ever called `verify_password`
+/// against an LDAP-managed row, `PasswordHash::new` above fails to
+/// parse it and `verify_password` already returns `false` for that --
+/// this is defense in depth, not just a marker for humans reading the
+/// column.
+pub const LDAP_MANAGED_PASSWORD_SENTINEL: &str = "!ldap-managed-no-local-password!";
+
 /// Hashes a bearer-style credential before it is stored in the database.
 ///
 /// The plaintext token is returned to the caller and is only used by the

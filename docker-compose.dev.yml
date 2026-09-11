@@ -37,8 +37,15 @@ services:
       # your Rust binary connected to it during local (non-Docker) testing.
       DATABASE_URL: mysql://${DEV_DB_USER}:${DEV_DB_PASS}@mariadb:3306/${DEV_DB_NAME}
       FRONTEND_ORIGIN: ${DEV_FRONTEND_ORIGIN}
+      SECLOG_MASTER_KEY: ${SECLOG_MASTER_KEY:-}
     ports:
       - "3001:3000"
+      # Only relevant if the Syslog receiver is turned on -- remapped to
+      # an unprivileged host port (unlike the production compose file's
+      # 514) so local dev doesn't need root, and so it can't collide
+      # with a production stack's 514 running on the same host.
+      - "5140:514/udp"
+      - "5140:514/tcp"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
