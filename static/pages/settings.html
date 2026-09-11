@@ -36,6 +36,92 @@
                 </label>
             </div>
             <button onclick="saveRetentionSettings()">Save Retention Settings</button>
+            <div id="log-table-size" class="hint" style="margin-top:0.75rem;"></div>
+        </div>
+
+        <div class="panel">
+            <h2>Archival Storage</h2>
+            <div class="panel-desc">
+                When enabled, logs that Retention above is about to delete are uploaded as a
+                dated JSON Lines file first -- if the upload fails, that cycle's delete is
+                skipped entirely rather than losing the rows. Credentials are encrypted at
+                rest and never sent back to this page once saved.
+            </div>
+
+            <div id="archive-master-key-warning" class="hint" style="display:none; color:var(--blood-bright);">
+                SECLOG_MASTER_KEY is not set on the server -- a secret can't be saved until an
+                administrator sets it (see README: Directory sync).
+            </div>
+
+            <div class="inline-form">
+                <label style="margin:0;">Backend
+                    <select id="archive-backend" onchange="renderArchiveFields()" style="margin-left:0.5rem;">
+                        <option value="none">None (disabled)</option>
+                        <option value="s3">S3-compatible</option>
+                        <option value="sftp">SFTP</option>
+                    </select>
+                </label>
+            </div>
+
+            <div id="archive-fields-s3" style="display:none;">
+                <div class="inline-form">
+                    <input id="archive-s3-endpoint" placeholder="https://s3.us-east-1.amazonaws.com or http://minio:9000" style="width:380px;">
+                </div>
+                <div class="inline-form">
+                    <input id="archive-s3-bucket" placeholder="Bucket name" style="width:220px;">
+                    <input id="archive-s3-region" placeholder="Region, e.g. us-east-1" style="width:180px;">
+                </div>
+                <div class="inline-form">
+                    <input id="archive-s3-access-key" placeholder="Access key">
+                    <input id="archive-s3-secret-key" type="password" placeholder="Secret key">
+                    <span id="archive-s3-secret-status" class="hint" style="margin:0;"></span>
+                </div>
+                <label class="switch-row" style="max-width:320px;">
+                    Path-style addressing (needed for MinIO/most self-hosted S3)
+                    <span class="switch">
+                        <input type="checkbox" id="archive-s3-path-style" checked>
+                        <span class="switch-slider"></span>
+                    </span>
+                </label>
+            </div>
+
+            <div id="archive-fields-sftp" style="display:none;">
+                <div class="inline-form">
+                    <input id="archive-sftp-host" placeholder="Host" style="width:220px;">
+                    <input id="archive-sftp-port" type="number" value="22" style="width:6rem;">
+                    <input id="archive-sftp-username" placeholder="Username" style="width:160px;">
+                </div>
+                <div class="inline-form">
+                    <input id="archive-sftp-password" type="password" placeholder="Password (leave blank if using a key)">
+                    <span id="archive-sftp-password-status" class="hint" style="margin:0;"></span>
+                </div>
+                <div class="inline-form">
+                    <textarea id="archive-sftp-private-key" placeholder="Private key (PEM, leave blank if using a password)" style="height:80px;"></textarea>
+                </div>
+                <div class="hint" id="archive-sftp-key-status"></div>
+                <div class="inline-form">
+                    <input id="archive-sftp-remote-path" placeholder="Remote directory, e.g. /backups/seclog" style="width:320px;">
+                </div>
+                <div class="hint">Host key is not verified -- only point this at a host on a trusted network. See ARCHITECTURE.md.</div>
+            </div>
+
+            <div class="inline-form">
+                <button onclick="saveArchiveConfig()">Save</button>
+                <button onclick="testArchiveConnection()" style="background:transparent; border-color:var(--border); color:var(--text-dim);">Test Connection</button>
+            </div>
+            <div id="archive-config-result" class="hint" style="margin-top:0.5rem;"></div>
+            <div id="archive-status" class="hint"></div>
+        </div>
+
+        <div class="panel">
+            <h2>Agent Health</h2>
+            <div class="panel-desc">Checked every 5 minutes. An agent that goes this long without checking in fires a system alert (Settings &rarr; Alerts) -- once per episode, not repeatedly while still dark.</div>
+            <div class="inline-form">
+                <label>Alert if an agent hasn't checked in for
+                    <input type="number" id="stale-agent-minutes" min="5" style="width:6rem;"> minutes
+                </label>
+            </div>
+            <button onclick="saveStaleAgentMinutes()">Save</button>
         </div>
     </div>
 
@@ -87,6 +173,7 @@
                 <input id="new-user-username" placeholder="Username">
                 <select id="new-user-role">
                     <option value="user">User</option>
+                    <option value="auditor">Auditor</option>
                     <option value="admin">Admin</option>
                 </select>
                 <button onclick="createUser()">Add User</button>
@@ -94,13 +181,58 @@
             <div id="create-user-result"></div>
 
             <table>
-                <thead><tr><th>ID</th><th>Username</th><th>Role</th><th></th></tr></thead>
+                <thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Auth</th><th></th></tr></thead>
                 <tbody id="user-rows"></tbody>
             </table>
         </div>
     </div>
 
     <div id="tab-alerts" style="display:none;">
+        <div class="panel">
+            <h2>Correlation Rules</h2>
+            <div class="panel-desc">
+                Threshold detection over the same labeled detections already shown on the
+                Dashboard -- e.g. 5 "SSH failed login" events from one host within 5 minutes.
+                The label is picked from the existing detection rule set, not free text, so a
+                rule can't reference anything SecLog doesn't already recognize. Checked every
+                60 seconds; fires once per burst, not on every check while it's ongoing.
+            </div>
+
+            <div class="inline-form">
+                <input id="corr-name" placeholder="Rule name" style="width:220px;">
+                <select id="corr-label" style="width:220px;"></select>
+                <select id="corr-group-by">
+                    <option value="host">Per host</option>
+                    <option value="user">Per user</option>
+                </select>
+            </div>
+            <div class="inline-form">
+                <label style="margin:0;">At least
+                    <input id="corr-threshold" type="number" min="2" value="5" style="width:5rem; margin-left:0.5rem;">
+                    events within
+                    <input id="corr-window" type="number" min="1" value="5" style="width:5rem; margin-left:0.5rem;"> min
+                </label>
+                <select id="corr-severity">
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High" selected>High</option>
+                    <option value="Critical">Critical</option>
+                </select>
+                <button onclick="createCorrelationRule()">Add Rule</button>
+            </div>
+            <div id="corr-result" class="hint"></div>
+
+            <table style="margin-top:1rem;">
+                <thead>
+                    <tr>
+                        <th>Name</th><th>Label</th><th>Group</th><th>Threshold</th><th>Window</th>
+                        <th>Severity</th><th>Enabled</th><th></th>
+                    </tr>
+                </thead>
+                <tbody id="corr-rule-rows"></tbody>
+            </table>
+        </div>
+
     	<div class="panel">
             <h2>Add Notification Channel</h2>
             <div class="panel-desc">Fires whenever a new detection reaches this severity or higher.</div>

@@ -18,6 +18,11 @@ struct NewLogEntry {
     user: String,
     message: String,
     host: String,
+    // The line's own timestamp, if parser::parse_line found one --
+    // CJIS AU-8. serde's default DateTime<Utc> serialization is
+    // RFC3339, which the server's chrono/serde stack deserializes
+    // directly, no custom (de)serializer needed on either end.
+    event_time: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -45,18 +50,49 @@ fn load_saved_key() -> Option<String> {
 }
 
 fn save_key(key: &str) {
-    let _ = fs::write(KEY_FILE, key);
+    if let Err(e) = fs::write(KEY_FILE, key) {
+        eprintln!(
+            "Warning: failed to save agent key to {}: {} -- this agent will try to \
+             re-register with the same enrollment token next restart, which will fail \
+             since it's single-use",
+            KEY_FILE, e
+        );
+    }
+}
+
+// Every reqwest::Client in this file should come from here. The default
+// client has no timeout at all, so a connection that stalls without ever
+// closing (a dead NAT mapping, a proxy that swallows the response) would
+// hang a watch loop indefinitely -- the retry logic in ship_line never
+// even gets a chance to run since the single attempt in flight never
+// returns.
+fn new_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
 }
 
 // Turns a filesystem path like "/var/log/auth.log" into a safe filename
-// for storing that file's watch position, e.g. "._shipper_state__var_log_auth_log".
-// We can't use the raw path as a filename since it contains '/'.
+// for storing that file's watch position, e.g.
+// ".shipper_state__var_log_auth_log_3a7f...". We can't use the raw path as
+// a filename since it contains '/'.
+//
+// The human-readable part alone isn't enough to be unique: every
+// non-alphanumeric character (including a literal '_' already in the
+// path) collapses to '_', so e.g. "/var/log/auth.log" and
+// "/var/log/auth_log" would otherwise both map to
+// ".shipper_state__var_log_auth_log" and silently share -- and corrupt --
+// each other's read position. The hash suffix guarantees two different
+// paths never collide, while the readable prefix stays for humans
+// browsing the working directory.
 fn state_file_for(path: &str) -> String {
     let safe: String = path
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
         .collect();
-    format!(".shipper_state_{}", safe)
+    let hash = &parser::hash_line(path)[..16];
+    format!(".shipper_state_{}_{}", safe, hash)
 }
 
 fn load_position(state_file: &str) -> Option<u64> {
@@ -96,6 +132,7 @@ async fn ship_line(client: &reqwest::Client, logs_url: &str, api_key: &str, host
                 user: entry.user,
                 message: entry.message,
                 host: host.to_string(),
+                event_time: entry.event_time,
             };
 
             const MAX_RETRIES: u32 = 3;
@@ -107,7 +144,15 @@ async fn ship_line(client: &reqwest::Client, logs_url: &str, api_key: &str, host
                     .send()
                     .await
                 {
-                    Ok(response) => {
+                    // A response that actually arrived is only a delivery if
+                    // the server returned 2xx. Treating any response (401
+                    // from a revoked key, 400 from a rejected payload, a 5xx
+                    // from the server) as "shipped" was the bug that made
+                    // the shipper silently advance past -- and permanently
+                    // drop -- every line once the server started rejecting
+                    // requests, all while printing what looked like a normal
+                    // "Shipped (...)" log.
+                    Ok(response) if response.status().is_success() => {
                         // Deliberately NOT echoing the shipped line's content
                         // here. Printing the full line is exactly what feeds
                         // the journald->rsyslog->watched-file loop described
@@ -116,6 +161,17 @@ async fn ship_line(client: &reqwest::Client, logs_url: &str, api_key: &str, host
                         // without creating new content for anything to re-ingest.
                         println!("Shipped ({})", response.status());
                         return true;
+                    }
+                    Ok(response) => {
+                        eprintln!(
+                            "Attempt {}/{} failed to ship line: server returned {}",
+                            attempt,
+                            MAX_RETRIES,
+                            response.status()
+                        );
+                        if attempt < MAX_RETRIES {
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+                        }
                     }
                     Err(e) => {
                         eprintln!("Attempt {}/{} failed to ship line: {}", attempt, MAX_RETRIES, e);
@@ -140,7 +196,7 @@ async fn ship_line(client: &reqwest::Client, logs_url: &str, api_key: &str, host
 async fn watch_file(path: String, logs_url: String, api_key: String, host: String) {
     println!("[{}] Starting watch", path);
     let state_file = state_file_for(&path);
-    let client = reqwest::Client::new();
+    let client = new_http_client();
 
     // Outer loop: handles (re)opening the file, including recovering if
     // it's temporarily missing or becomes inaccessible mid-watch.
@@ -183,26 +239,60 @@ async fn watch_file(path: String, logs_url: String, api_key: String, host: Strin
                     continue 'reconnect;
                 }
 
-                let reader = BufReader::new(&file);
-                for line in reader.lines() {
-                    let line = match line {
-                        Ok(l) => l,
+                let mut reader = BufReader::new(&file);
+                let mut raw = Vec::new();
+
+                loop {
+                    raw.clear();
+                    let bytes_read = match reader.read_until(b'\n', &mut raw) {
+                        Ok(n) => n as u64,
                         Err(_) => break,
                     };
-                    let line_len = line.len() as u64 + 1;
+
+                    if bytes_read == 0 {
+                        // Genuine EOF -- nothing left to read this poll.
+                        break;
+                    }
+
+                    // A chunk that doesn't end in '\n' is a line still being
+                    // written (we polled mid-write). Ship it later, once it's
+                    // complete -- ADVANCING PAST IT NOW would overshoot the
+                    // real end of file (this exact bug used to make the
+                    // "file appears rotated" check below fire falsely, and
+                    // could chop the first byte(s) off whatever got appended
+                    // next), so leave the read position where it is and wait
+                    // for the next poll instead.
+                    if !raw.ends_with(b"\n") {
+                        break;
+                    }
+
+                    // Strip the newline, and a preceding '\r' too so
+                    // CRLF-terminated files (e.g. logs copied over from
+                    // Windows) parse the same as LF-only ones. bytes_read
+                    // itself -- not the stripped string's length -- is what
+                    // we advance position by, so the byte accounting stays
+                    // exact regardless of line-ending style.
+                    let mut content_len = raw.len();
+                    if content_len > 0 && raw[content_len - 1] == b'\n' {
+                        content_len -= 1;
+                    }
+                    if content_len > 0 && raw[content_len - 1] == b'\r' {
+                        content_len -= 1;
+                    }
+                    let line = String::from_utf8_lossy(&raw[..content_len]).into_owned();
 
                     // See looks_like_own_output above -- this is the actual
                     // break in the feedback loop. We still advance/save the
                     // read position so these lines aren't retried forever,
                     // we just never ship or print their content.
                     if looks_like_own_output(&line) {
-                        position += line_len;
+                        position += bytes_read;
                         save_position(&state_file, position);
                         continue;
                     }
 
                     if ship_line(&client, &logs_url, &api_key, &host, &line).await {
-                        position += line_len;
+                        position += bytes_read;
                         save_position(&state_file, position);
                     } else {
                         break;
@@ -239,7 +329,7 @@ fn classify_event_id(event_id: &str) -> (&'static str, &'static str) {
 #[cfg(target_os = "windows")]
 async fn watch_windows_security_log(logs_url: String, api_key: String, host: String) {
     println!("[WindowsEventLog] Starting watch on Security log");
-    let client = reqwest::Client::new();
+    let client = new_http_client();
 
     loop {
         // /rd:true = most recent first, /c:20 = last 20 events, /f:text =
@@ -271,11 +361,15 @@ async fn watch_windows_security_log(logs_url: String, api_key: String, host: Str
                     // POST as the file-based path, just built directly here
                     // instead of going through parser::parse_line (Windows
                     // event text doesn't match the Linux/macOS line formats).
+                    // extract_event_time is still reusable standalone, though
+                    // -- wevtutil's text output has its own "Date:" field
+                    // (ISO8601 with a 'Z'), which it already recognizes.
                     let payload = NewLogEntry {
                         severity: severity.to_string(),
                         user: "system".to_string(),
                         message: format!("[{}] EventID={} {}", label, event_id, event_block.trim()),
                         host: host.clone(),
+                        event_time: parser::extract_event_time(event_block),
                     };
 
                     match client
@@ -325,7 +419,7 @@ async fn watch_macos_unified_log(logs_url: String, api_key: String, host: String
     };
 
     let mut reader = BufReader::new(stdout).lines();
-    let client = reqwest::Client::new();
+    let client = new_http_client();
 
     // AsyncBufReadExt::lines gives us an async iterator -- each
     // .next_line().await yields control back to the runtime while
@@ -338,7 +432,7 @@ async fn watch_macos_unified_log(logs_url: String, api_key: String, host: String
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let base_url = env::var("SHIPPER_API_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
-    let client = reqwest::Client::new();
+    let client = new_http_client();
 
     let api_key = if let Some(key) = load_saved_key() {
         println!("Using saved agent key from {}", KEY_FILE);
@@ -443,15 +537,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                         // Start watching anything new.
                         for path in desired {
-                            if !active.contains_key(&path) {
-                                let p = path.clone();
+                            if let std::collections::hash_map::Entry::Vacant(e) = active.entry(path) {
+                                let p = e.key().clone();
                                 let logs_url_clone = logs_url.clone();
                                 let api_key_clone = api_key.clone();
                                 let host_clone = hostname.clone();
                                 let handle = tokio::spawn(async move {
                                     watch_file(p, logs_url_clone, api_key_clone, host_clone).await;
                                 });
-                                active.insert(path, handle);
+                                e.insert(handle);
                             }
                         }
                     }

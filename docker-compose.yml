@@ -32,8 +32,19 @@ services:
       # your Rust binary connected to it during local (non-Docker) testing.
       DATABASE_URL: mysql://${DB_USER}:${DB_PASS}@mariadb:3306/${DB_NAME}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN}
+      # Optional -- only needed if Directory (LDAP/AD) sync is turned on.
+      # install.sh generates one into .env regardless, so it's already
+      # there if/when it's needed.
+      SECLOG_MASTER_KEY: ${SECLOG_MASTER_KEY:-}
     ports:
       - "3000:3000"
+      # Only relevant if the Syslog receiver (Syslog page) is turned on
+      # -- the app doesn't bind these unless enabled_udp/enabled_tcp are
+      # set, but the container port has to be published regardless for
+      # a device to ever reach it. Like the DB port above, this is a
+      # fixed mapping, not admin-configurable from the dashboard.
+      - "514:514/udp"
+      - "514:514/tcp"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s

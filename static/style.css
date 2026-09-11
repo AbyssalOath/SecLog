@@ -96,7 +96,7 @@ h1::before { content: "// "; color: var(--blood-bright); }
 .stat-card .stat-value { font-size: 1.8rem; font-weight: bold; color: var(--text); }
 .stat-card .stat-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 0.25rem; }
  
-input, button {
+input, button, textarea {
     background: #0d0b0a;
     color: var(--text);
     border: 1px solid var(--border);
@@ -106,6 +106,7 @@ input, button {
     border-radius: 3px;
 }
 input { width: 260px; }
+textarea { width: 100%; resize: vertical; }
 button {
     background: var(--blood);
     border: 1px solid var(--blood-bright);
@@ -270,4 +271,46 @@ select {
     color: #fff;
     border-color: #fff;
     animation: pulse-red 1.6s ease-in-out infinite;
+}
+
+/* Directory page: enrollment/staleness status pills, same visual
+   language as the .level-* severity pills used elsewhere. */
+.status-pill {
+    display: inline-block;
+    padding: 0.15rem 0.6rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.status-pill.status-enrolled { color: #4caf50; border: 1px solid #4caf50; }
+.status-pill.status-not-enrolled { color: var(--blood-bright); border: 1px solid var(--blood-bright); }
+.status-pill.status-stale { color: var(--text-dim); border: 1px solid var(--border); }
+
+/* Dashboard: log-review status pills (CJIS AU-6). Same clickable
+   pill language, plus the inline review panel it expands into. */
+.status-pill.status-review-open { color: #c48a1e; border: 1px solid #c48a1e; cursor: pointer; }
+.status-pill.status-review-reviewed { color: #4caf50; border: 1px solid #4caf50; cursor: pointer; }
+.status-pill.status-review-false-positive { color: var(--text-dim); border: 1px solid var(--border); cursor: pointer; }
+.review-panel {
+    background: #0d0b0a;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.6rem;
+    margin-top: 0.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.review-panel textarea {
+    background: #0d0b0a;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.5rem;
+    font-family: inherit;
+    font-size: 0.8rem;
+    width: 100%;
+    min-height: 3rem;
+    resize: vertical;
 }

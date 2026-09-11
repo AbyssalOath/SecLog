@@ -6,3 +6,7 @@ pub mod models;
 pub mod parser;
 pub mod auth;
 pub mod notify;
+pub mod crypto;
+pub mod directory;
+pub mod syslog;
+pub mod archive;

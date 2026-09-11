@@ -1,6 +1,9 @@
 const routes = {
     '/dashboard': { fragment: 'pages/dashboard.html', init: 'initDashboard' },
     '/agents': { fragment: 'pages/agents.html', init: 'initAgents' },
+    '/directory': { fragment: 'pages/directory.html', init: 'initDirectory' },
+    '/syslog': { fragment: 'pages/syslog.html', init: 'initSyslogPage' },
+    '/audit-log': { fragment: 'pages/audit-log.html', init: 'initAuditLogPage' },
     '/settings': { fragment: 'pages/settings.html', init: 'initSettings' },
 };
 

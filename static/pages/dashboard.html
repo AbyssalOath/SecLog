@@ -1,58 +1,67 @@
 <h1>Dashboard</h1>
 <div id="version-badge" class="version-box"></div>
 <div id="whoami"></div>
+<div id="dashboard-access-result"></div>
 
-<div class="stats-row">
-    <div class="stat-card">
-        <div class="stat-value" id="stat-total">—</div>
-        <div class="stat-label">Total Detections</div>
+<div id="dashboard-content" style="display:none;">
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-value" id="stat-total">—</div>
+            <div class="stat-label">Total Detections</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="stat-errors">—</div>
+            <div class="stat-label">High</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="stat-warns">—</div>
+            <div class="stat-label">Critical</div>
+        </div>
     </div>
-    <div class="stat-card">
-        <div class="stat-value" id="stat-errors">—</div>
-        <div class="stat-label">High</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-value" id="stat-warns">—</div>
-        <div class="stat-label">Critical</div>
-    </div>
-</div>
 
-<div id="host-summary-view">
-    <input id="host-filter-box" placeholder="Filter by host..." style="width:100%;" oninput="renderHostTable()">
-    <table>
-        <thead>
-            <tr>
-                <th>Host</th>
-                <th>Total</th>
-                <th>Critical</th>
-                <th>High</th>
-                <th>Medium</th>
-                <th>Low</th>
-            </tr>
-        </thead>
-        <tbody id="host-rows"></tbody>
-    </table>
-</div>
+    <div id="host-summary-view">
+        <input id="host-filter-box" placeholder="Filter by host..." style="width:100%;" oninput="renderHostTable()">
+        <table>
+            <thead>
+                <tr>
+                    <th>Host</th>
+                    <th>Total</th>
+                    <th>Critical</th>
+                    <th>High</th>
+                    <th>Medium</th>
+                    <th>Low</th>
+                </tr>
+            </thead>
+            <tbody id="host-rows"></tbody>
+        </table>
+    </div>
 
-<div id="host-detail-view" style="display:none;">
-    <a href="#" class="back-link" onclick="event.preventDefault(); showHostSummary();">&larr; Back to hosts</a>
-    <h2 id="host-detail-title"></h2>
-    <div class="panel-desc">Most severe first. Filter searches only the rows on the current page.</div>
-    <input id="detail-filter-box" placeholder="Filter by user or message..." style="width:100%;" oninput="renderDetailTable()">
-    <select id="detail-severity-filter" onchange="renderDetailTable()">
-    	<option value="">All severities</option>
-    	<option value="Critical">Critical</option>
-    	<option value="High">High</option>
-   	<option value="Medium">Medium</option>
-    	<option value="Low">Low</option>
-    </select>
-    <table class="log-detail-table">
-        <thead><tr><th>ID</th><th>Severity</th><th>User</th><th>Message</th></tr></thead>
-        <tbody id="log-rows"></tbody>
-    </table>
-    <div class="pagination-row">
-        <button id="detail-prev" onclick="changeDetailPage(-1)">&laquo; Prev</button>
-        <span id="detail-page-info"></span>
-        <button id="detail-next" onclick="changeDetailPage(1)">Next &raquo;</button>
+    <div id="host-detail-view" style="display:none;">
+        <a href="#" class="back-link" onclick="event.preventDefault(); showHostSummary();">&larr; Back to hosts</a>
+        <h2 id="host-detail-title"></h2>
+        <div class="panel-desc">Most severe first. Filter searches only the rows on the current page.</div>
+        <input id="detail-filter-box" placeholder="Filter by user or message..." style="width:100%;" oninput="renderDetailTable()">
+        <select id="detail-severity-filter" onchange="renderDetailTable()">
+            <option value="">All severities</option>
+            <option value="Critical">Critical</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+        </select>
+        <select id="detail-review-filter" onchange="renderDetailTable()">
+            <option value="">Any review status</option>
+            <option value="open">Open</option>
+            <option value="reviewed">Reviewed</option>
+            <option value="false_positive">False Positive</option>
+        </select>
+        <table class="log-detail-table">
+            <thead><tr><th>ID</th><th>Severity</th><th>User</th><th>Message</th><th>Review</th></tr></thead>
+            <tbody id="log-rows"></tbody>
+        </table>
+        <div class="pagination-row">
+            <button id="detail-prev" onclick="changeDetailPage(-1)">&laquo; Prev</button>
+            <span id="detail-page-info"></span>
+            <button id="detail-next" onclick="changeDetailPage(1)">Next &raquo;</button>
+        </div>
     </div>
 </div>
