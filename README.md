@@ -255,15 +255,15 @@ logs. The parser specifically recognizes events such as:
 
 ## Directory sync (LDAP / Active Directory)
 
-Log in as admin → **Directory** to connect SecLog to an LDAP or Active
-Directory server and see which domain-joined computers don't have the
-shipper running yet.
+Log in as admin → **Settings → Directory** to connect SecLog to an
+LDAP or Active Directory server and see which domain-joined computers
+don't have the shipper running yet.
 
 This is **read-only discovery, not remote deployment**: SecLog binds
 and searches for computer objects on a schedule; it never connects to,
 logs into, or runs anything on a discovered machine. For each one that
-isn't enrolled, the Directory page gives you a one-time enrollment
-token and the same install one-liner shown on the Agents page — you
+isn't enrolled, the Settings → Directory page gives you a one-time
+enrollment token and the same install one-liner shown on the Agents page — you
 still run that on the target machine yourself (or through your
 existing GPO/Intune/SCCM deployment tooling). A service account with
 rights to remotely execute code across the domain is a much bigger
@@ -283,7 +283,7 @@ ask for one.
    sessions, agent API keys), which are one-way hashed and never
    recovered. Saving a bind password without this set fails with a
    clear error rather than ever storing it unencrypted.
-3. In **Directory**, enter the server URI (`ldaps://` strongly
+3. In **Settings → Directory**, enter the server URI (`ldaps://` strongly
    preferred over plain `ldap://`), the service account's bind DN and
    password, and a base DN to search under. **Test Connection** before
    saving to catch a bad DN/password without waiting on the schedule.
@@ -335,8 +335,8 @@ account's, cross this connection on every login attempt.
 ### Deployment packages (GPO / Intune)
 
 For enrolling many machines at once — an entire OU — instead of running
-the one-time install command on each one by hand, the **Directory**
-page's **Deployment Packages** panel generates a headless PowerShell
+the one-time install command on each one by hand, the **Settings →
+Directory** page's **Deployment Packages** panel generates a headless PowerShell
 script backed by a **multi-use, time-limited** enrollment token: pick a
 max use count and an expiry, optionally label it (e.g. the OU name, for
 your own bookkeeping — SecLog can't verify a machine running the script

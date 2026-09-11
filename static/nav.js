@@ -2,7 +2,6 @@ function renderSidebar() {
     const links = [
         { path: '/dashboard', label: 'Dashboard' },
         { path: '/agents', label: 'Agents' },
-        { path: '/directory', label: 'Directory' },
         { path: '/syslog', label: 'Syslog' },
         { path: '/audit-log', label: 'Audit Log' },
         { path: '/settings', label: 'Settings' },
